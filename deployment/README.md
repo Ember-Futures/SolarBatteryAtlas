@@ -70,7 +70,7 @@ Battery_SOC(t+1) = Battery_SOC(t) + Charge(t) - Discharge(t)
 - `0 ≤ Battery_SOC(t) ≤ Battery_Capacity` (GWh)
 - Charge rate limited by excess solar generation
 - Discharge rate limited by demand gap and battery capacity
-- Round-trip efficiency: ~90% (implicit in simulation)
+- Round-trip efficiency: 90% (modeled explicitly as symmetric charge/discharge losses)
 
 **Dispatch Priority:**
 1. Solar directly meets the 1 GW load when available
@@ -332,4 +332,3 @@ Based on the data structure, the offline simulation likely made these assumption
 - Leaflet.js, D3.js, Chart.js
 - Apache Arrow, Apache Parquet
 - Tailwind CSS
-

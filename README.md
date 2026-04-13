@@ -13,7 +13,7 @@ This repo splits the experience into:
 
 ## Typical workflow
 
-1. Run the pipeline scripts under `workspace/pipeline` (they automatically read/write from `workspace/data` and `frontend/docs/data`).
+1. Run the pipeline scripts under `workspace/scripts/pipeline` (they read from `workspace/input_data` and write generated outputs to `workspace/outputs`).
 2. Inspect intermediate outputs in `workspace/output` or `workspace/data`.
 3. Copy `frontend/` (or just `frontend/docs`) to the deployment repo and push to GitHub Pages.
 
@@ -28,10 +28,10 @@ Each pipeline module resolves file paths relative to the repo root, so `python w
 
 1. `pipeline/01_selectlocations.py` samples evenly spread land coordinates using Natural Earth land polygons.
 2. `pipeline/voronoi_population.py` reprojects the sampled cells, intersects them with the GPWv4 raster, and exports summary CSVs.
-3. `pipeline/run.py` reads `data/solar_profiles.csv`, simulates every solar (1–20 GW) and battery (0–36 GWh) pair against a 1 GW baseload, writes the summary Parquet plus sample shards, and publishes the outputs into `frontend/docs/data`.
+3. `workspace/scripts/pipeline/run.py` reads `workspace/input_data/solar_profiles.csv`, simulates every solar (1–20 GW) and battery (0–36 GWh) pair against a 1 GW baseload using a 90% battery round-trip efficiency, and writes the summary Parquet plus sample shards to `workspace/outputs`.
 4. `pipeline/fetch_power_plants.py` downloads the WRI Global Power Plant Database, filters it to coal/gas/oil units, and saves a Parquet snapshot to `workspace/data/global_power_plants_coal_gas_oil.parquet` for downstream analyses.
 5. `pipeline/plot_power_plants.py` reads that Parquet and generates `workspace/data/global_power_plants_coal_gas_oil_map.png`, a bubble map where bubble size reflects installed MW.
 6. `pipeline/voronoi_fossil_capacity.py` joins the filtered power plants with the Voronoi cells (each baseload location) and exports `workspace/data/voronoi_fossil_capacity.csv`, listing coal/gas/oil MW totals per Voronoi centroid.
 7. `pipeline/voronoi_solar_potential_gee.py` computes rooftop + utility solar technical potential per Voronoi zone in Google Earth Engine and exports a CSV of TWh/year plus diagnostics (requires an EE asset for the zones).
 
-Running `python workspace/pipeline/run.py` rebuilds the atlas. Use `--sample N` to work with a reduced number of locations when testing.
+Running `cd workspace && python3 -m scripts.pipeline.run --overwrite` rebuilds the atlas. Use `--sample N` to work with a reduced number of locations when testing.
