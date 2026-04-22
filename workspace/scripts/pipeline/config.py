@@ -3,9 +3,8 @@ from pathlib import Path
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = WORKSPACE_DIR.parent
-FRONTEND_DOCS_DIR = REPO_ROOT / "frontend" / "docs"
+DEPLOYMENT_DIR = REPO_ROOT / "deployment"
 
-# Paths
 # Paths
 INPUTS_DIR = WORKSPACE_DIR / "input_data"
 OUTPUTS_DIR = WORKSPACE_DIR / "outputs"
@@ -14,7 +13,7 @@ OUTPUTS_DIR = WORKSPACE_DIR / "outputs"
 DATA_DIR = INPUTS_DIR
 
 CACHE_DIR = INPUTS_DIR / "cache"
-DOCS_DATA_DIR = FRONTEND_DOCS_DIR / "data"
+DOCS_DATA_DIR = DEPLOYMENT_DIR / "data"
 
 SOLAR_PROFILES_PATH = INPUTS_DIR / "solar_profiles.csv"
 

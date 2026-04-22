@@ -194,7 +194,7 @@ export async function initMap(onLocationSelect) {
     map.onLocationSelect = onLocationSelect;
 
     const worldGeoJsonSources = [
-        '../deployment/data/world.geojson',
+        '../data/world.geojson',
         'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson'
     ];
     for (const source of worldGeoJsonSources) {

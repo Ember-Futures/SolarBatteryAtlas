@@ -2,8 +2,8 @@
 
 This repo splits the experience into:
 
-- `frontend/` — everything that gets deployed to GitHub Pages (copy `frontend/docs` into the deployment repo).  
-- `workspace/` — the pipeline scripts, source data, and caches used to regenerate `frontend/docs`.
+- `deployment/` — everything that gets deployed to GitHub Pages, including the interactive atlas and the scrollytelling story at `deployment/scrollytelling/`.
+- `workspace/` — the pipeline scripts, source data, and caches used to regenerate `deployment/data`.
 
 ## What’s new in the Atlas
 
@@ -15,14 +15,14 @@ This repo splits the experience into:
 
 1. Run the pipeline scripts under `workspace/scripts/pipeline` (they read from `workspace/input_data` and write generated outputs to `workspace/outputs`).
 2. Inspect intermediate outputs in `workspace/output` or `workspace/data`.
-3. Copy `frontend/` (or just `frontend/docs`) to the deployment repo and push to GitHub Pages.
+3. Copy `deployment/` to the deployment repo and push to GitHub Pages.
 
 Each pipeline module resolves file paths relative to the repo root, so `python workspace/pipeline/<script>.py` works without extra wiring.
 
 ## Data sources
 
 - **Solar/weather inputs:** NASA/POWER Surface Meteorology and Solar Energy data (https://power.larc.nasa.gov) sampled per location, resampled to hourly baseload outputs, and stored as `workspace/data/solar_profiles.csv`.
-- **Population totals:** NASA SEDAC Gridded Population of the World, Version 4 (GPWv4) 2020 raster (`workspace/data/gpw_v4_population_count_rev11_2020_2pt5_min.asc`), summed per Voronoi cell and exported alongside the front-end dataset `frontend/docs/data/voronoi_population_2020.csv`.
+- **Population totals:** NASA SEDAC Gridded Population of the World, Version 4 (GPWv4) 2020 raster (`workspace/data/gpw_v4_population_count_rev11_2020_2pt5_min.asc`), summed per Voronoi cell and exported alongside the front-end dataset `deployment/data/voronoi_population_2020.csv`.
 
 ## Pipeline overview
 

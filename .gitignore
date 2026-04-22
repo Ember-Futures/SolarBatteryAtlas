@@ -1,5 +1,6 @@
 .DS_Store
 .vite/
+.claude/
 
 # Local workspaces and archives (not for GitHub)
 workspace/

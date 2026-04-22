@@ -16,7 +16,7 @@ async function initWasm() {
 export async function loadSummary() {
     const wasm = await initWasm();
 
-    const response = await fetch('../deployment/data/simulation_results_summary.parquet');
+    const response = await fetch('../data/simulation_results_summary.parquet');
     const buffer = await response.arrayBuffer();
     try {
         const wasmTable = wasm.readParquet(new Uint8Array(buffer));
@@ -50,9 +50,9 @@ function parseCsv(text) {
 }
 
 export async function loadPopulationCsv() {
-    const response = await fetch('../deployment/data/voronoi_population_2020.csv');
+    const response = await fetch('../data/voronoi_population_2020.csv');
     if (!response.ok) {
-        throw new Error('Population CSV not found at ../deployment/data/voronoi_population_2020.csv');
+        throw new Error('Population CSV not found at ../data/voronoi_population_2020.csv');
     }
     const rows = parseCsv(await response.text());
     return rows.map(row => ({
@@ -63,9 +63,9 @@ export async function loadPopulationCsv() {
 }
 
 export async function loadGemPlantsCsv() {
-    const response = await fetch('../deployment/data/gem_plants.csv');
+    const response = await fetch('../data/gem_plants.csv');
     if (!response.ok) {
-        throw new Error('GEM plants CSV not found at ../deployment/data/gem_plants.csv');
+        throw new Error('GEM plants CSV not found at ../data/gem_plants.csv');
     }
     const rows = parseCsv(await response.text());
     return rows
@@ -82,9 +82,9 @@ export async function loadGemPlantsCsv() {
 }
 
 export async function loadVoronoiGemCapacityCsv() {
-    const response = await fetch('../deployment/data/voronoi_gem_capacity.csv');
+    const response = await fetch('../data/voronoi_gem_capacity.csv');
     if (!response.ok) {
-        throw new Error('Voronoi fossil capacity CSV not found at ../deployment/data/voronoi_gem_capacity.csv');
+        throw new Error('Voronoi fossil capacity CSV not found at ../data/voronoi_gem_capacity.csv');
     }
     const rows = parseCsv(await response.text());
     return rows.map(row => ({
@@ -131,7 +131,7 @@ async function readSampleArrowTable(solarGw, battGwh) {
     const wasm = await initWasm();
 
     const filename = `samples_s${solarGw}_b${battGwh}.parquet`;
-    const response = await fetch(`../deployment/data/samples/${filename}`);
+    const response = await fetch(`../data/samples/${filename}`);
 
     if (!response.ok) {
         throw new Error(`Sample file not found: ${filename}`);
@@ -216,7 +216,7 @@ export async function loadWeeklyFrameCache(configId, season) {
     ];
 
     for (const filename of candidates) {
-        const response = await fetch(`../deployment/data/samples_light/${filename}`);
+        const response = await fetch(`../data/samples_light/${filename}`);
         if (!response.ok) continue;
 
         const buffer = await response.arrayBuffer();
@@ -240,7 +240,7 @@ export async function loadWeeklyFrameCache(configId, season) {
 
 export async function loadElectricityDemandData() {
     try {
-        const response = await fetch('../deployment/data/voronoi_electricity_demand.csv');
+        const response = await fetch('../data/voronoi_electricity_demand.csv');
         const text = await response.text();
         return d3.csvParse(text, (d) => ({
             location_id: +d.location_id,
@@ -256,7 +256,7 @@ export async function loadElectricityDemandData() {
 
 export async function loadReliabilityCsv() {
     try {
-        const response = await fetch('../deployment/data/voronoi_grid_reliability.csv');
+        const response = await fetch('../data/voronoi_grid_reliability.csv');
         const text = await response.text();
         return d3.csvParse(text, (d) => {
             // Columns: location_id,latitude,longitude,hrea_covered,pop_rel_0...pop_rel_95_100,pop_rel_100
@@ -326,9 +326,9 @@ export async function loadReliabilityCsv() {
 }
 
 export async function loadPvoutPotentialCsv() {
-    const response = await fetch('../deployment/data/voronoi_pvout_potential.csv');
+    const response = await fetch('../data/voronoi_pvout_potential.csv');
     if (!response.ok) {
-        throw new Error('PVOUT potential CSV not found at ../deployment/data/voronoi_pvout_potential.csv');
+        throw new Error('PVOUT potential CSV not found at ../data/voronoi_pvout_potential.csv');
     }
     const rows = parseCsv(await response.text());
     return rows.map(row => ({
@@ -344,9 +344,9 @@ export async function loadPvoutPotentialCsv() {
 }
 
 export async function loadVoronoiWaccCsv() {
-    const response = await fetch('../deployment/data/voronoi_wacc.csv');
+    const response = await fetch('../data/voronoi_wacc.csv');
     if (!response.ok) {
-        throw new Error('Voronoi WACC CSV not found at ../deployment/data/voronoi_wacc.csv');
+        throw new Error('Voronoi WACC CSV not found at ../data/voronoi_wacc.csv');
     }
     const rows = parseCsv(await response.text());
     return rows.map(row => ({
@@ -358,9 +358,9 @@ export async function loadVoronoiWaccCsv() {
 }
 
 export async function loadVoronoiLocalCapexCsv() {
-    const response = await fetch('../deployment/data/voronoi_local_capex.csv');
+    const response = await fetch('../data/voronoi_local_capex.csv');
     if (!response.ok) {
-        throw new Error('Voronoi local capex CSV not found at ../deployment/data/voronoi_local_capex.csv');
+        throw new Error('Voronoi local capex CSV not found at ../data/voronoi_local_capex.csv');
     }
     const rows = parseCsv(await response.text());
     return rows.map(row => ({
