@@ -2,6 +2,7 @@ import { readParquet } from './parquet_wasm.js';
 
 // Initialize WASM
 let wasmModule = null;
+const DIESEL_DATA_VERSION = '2026-04-21-fix3';
 
 async function initWasm() {
     if (wasmModule) return wasmModule;
@@ -35,18 +36,70 @@ export async function loadSummary() {
 }
 
 function parseCsv(text) {
-    const lines = text.trim().split(/\r?\n/);
-    const header = lines.shift();
+    const rows = [];
+    let row = [];
+    let value = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+        const next = text[i + 1];
+
+        if (char === '"') {
+            if (inQuotes && next === '"') {
+                value += '"';
+                i += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (char === ',' && !inQuotes) {
+            row.push(value);
+            value = '';
+            continue;
+        }
+
+        if ((char === '\n' || char === '\r') && !inQuotes) {
+            if (char === '\r' && next === '\n') {
+                i += 1;
+            }
+            row.push(value);
+            if (row.some(cell => cell !== '')) {
+                rows.push(row);
+            }
+            row = [];
+            value = '';
+            continue;
+        }
+
+        value += char;
+    }
+
+    if (value !== '' || row.length) {
+        row.push(value);
+        if (row.some(cell => cell !== '')) {
+            rows.push(row);
+        }
+    }
+
+    const [header, ...dataRows] = rows;
     if (!header) return [];
-    const cols = header.split(',');
-    return lines.map(line => {
-        const parts = line.split(',');
-        const row = {};
-        cols.forEach((c, idx) => {
-            row[c] = parts[idx];
+
+    return dataRows.map(parts => {
+        const out = {};
+        header.forEach((col, idx) => {
+            out[col] = parts[idx] ?? '';
         });
-        return row;
+        return out;
     });
+}
+
+function parseOptionalNumber(value) {
+    if (value === '' || value === null || value === undefined) return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
 }
 
 export async function loadPopulationCsv() {
@@ -147,6 +200,37 @@ export async function loadVoronoiLocalCapexCsv() {
     }));
 }
 
+export async function loadVoronoiDieselCsv() {
+    const response = await fetch(`data/voronoi_diesel_prices.csv?v=${DIESEL_DATA_VERSION}`);
+    if (!response.ok) {
+        throw new Error('Voronoi diesel CSV not found at data/voronoi_diesel_prices.csv');
+    }
+    const rows = parseCsv(await response.text());
+    return rows.map(row => ({
+        location_id: Number(row.location_id),
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        country_iso3: row.country_iso3 || null,
+        country_name: row.country_name || null,
+        diesel_2024_iso3: row.diesel_2024_iso3 || null,
+        diesel_2024_country: row.diesel_2024_country || null,
+        diesel_2024_usd_per_liter_avg: parseOptionalNumber(row.diesel_2024_usd_per_liter_avg),
+        diesel_2024_months_observed: parseOptionalNumber(row.diesel_2024_months_observed),
+        diesel_2024_series_name: row.diesel_2024_series_name || null,
+        diesel_2024_selection_method: row.diesel_2024_selection_method || null,
+        diesel_2025_usd_per_liter_avg: parseOptionalNumber(row.diesel_2025_usd_per_liter_avg),
+        diesel_2025_iso3: row.diesel_2025_iso3 || null,
+        diesel_2025_country: row.diesel_2025_country || null,
+        diesel_2025_months_observed: parseOptionalNumber(row.diesel_2025_months_observed),
+        diesel_2025_series_name: row.diesel_2025_series_name || null,
+        diesel_2025_selection_method: row.diesel_2025_selection_method || null,
+        diesel_2024_source: row.diesel_2024_source || null,
+        diesel_2025_source: row.diesel_2025_source || null,
+        diesel_2024_distance_km: parseOptionalNumber(row.diesel_2024_distance_km),
+        diesel_2025_distance_km: parseOptionalNumber(row.diesel_2025_distance_km)
+    }));
+}
+
 export async function loadPvoutPotentialCsv() {
     const response = await fetch('data/voronoi_pvout_potential.csv');
     if (!response.ok) {
@@ -168,7 +252,12 @@ export async function loadPvoutPotentialCsv() {
         pvout_level2_mean: Number(row.pvout_level2_mean),
         pvout_level2_twh_per_mw_km2: Number(row.pvout_level2_twh_per_mw_km2),
         pvout_level2_twh_y: Number(row.pvout_level2_twh_y),
-        assumed_mw_per_km2: Number(row.assumed_mw_per_km2)
+        assumed_mw_per_km2: Number(row.assumed_mw_per_km2),
+        rooftop_area_km2: Number(row.rooftop_area_km2 || 0),
+        rooftop_mw_per_km2: Number(row.rooftop_mw_per_km2 || 0),
+        rooftop_twh_y: Number(row.rooftop_twh_y || 0),
+        total_level1_twh_y: Number(row.total_level1_twh_y ?? row.pvout_level1_twh_y),
+        total_level2_twh_y: Number(row.total_level2_twh_y ?? row.pvout_level2_twh_y)
     }));
 }
 

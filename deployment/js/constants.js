@@ -12,6 +12,7 @@ export const FUEL_COLORS = {
 };
 
 export const BASE_LOAD_MW = 1000;
+export const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
 
 export const TX_WACC = 0.06;
 export const TX_LIFE = 50;
@@ -67,7 +68,7 @@ export const POTENTIAL_TOTAL_COLORS = [
  * 4) FEATURE_WORKER_LCOE
  * 5) FEATURE_FRAMECACHE (scrollytelling)
  */
-export const FEATURE_WORKER_LCOE = false;
+export const FEATURE_WORKER_LCOE = true;
 export const FEATURE_STAGED_PRELOAD = true;
 export const FEATURE_VORONOI_REUSE = true;
 export const FEATURE_FRAMECACHE = false;

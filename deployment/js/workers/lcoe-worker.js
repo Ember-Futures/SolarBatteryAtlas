@@ -2,6 +2,9 @@ const STATE = {
     rowsByLocation: new Map()
 };
 
+const BASE_LOAD_MW = 1000;
+const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
+
 function capitalRecoveryFactor(rate, years) {
     if (!Number.isFinite(rate) || !Number.isFinite(years) || years <= 0) {
         return 0;
@@ -9,9 +12,9 @@ function capitalRecoveryFactor(rate, years) {
     if (rate === 0) {
         return 1 / years;
     }
-    const numerator = rate * Math.pow(1 + rate, years);
-    const denominator = Math.pow(1 + rate, years) - 1;
-    return denominator === 0 ? 0 : numerator / denominator;
+    const pow = Math.pow(1 + rate, years);
+    const denominator = pow - 1;
+    return denominator === 0 ? 0 : (rate * pow) / denominator;
 }
 
 function getLocalCapex(localCapexByLocation, locationId) {
@@ -25,9 +28,53 @@ function getLocalWacc(waccByLocation, locationId) {
     return Number.isFinite(value) ? value : null;
 }
 
-function computeConfigLcoe(row, params, costMultipliers, localWacc, localCapex) {
-    const solarKw = Number.isFinite(row._solarKw) ? row._solarKw : row.solar_gw * 1_000_000;
-    const batteryKwh = Number.isFinite(row._batteryKwh) ? row._batteryKwh : row.batt_gwh * 1_000_000;
+function getDieselInfo(dieselByLocation, locationId) {
+    if (!dieselByLocation) return null;
+    return dieselByLocation[String(locationId)] || dieselByLocation[locationId] || null;
+}
+
+function clampCf(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+}
+
+function getNonNegativeParam(value, fallback) {
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function computeEffectiveDieselPriceUsdPerLiter(dieselInfo, params) {
+    const rawPrice = Number.isFinite(dieselInfo?.rawPrice ?? dieselInfo?.price)
+        ? (dieselInfo?.rawPrice ?? dieselInfo?.price)
+        : null;
+    const priceFloor = getNonNegativeParam(params.dieselPriceFloor, 1.0);
+    const deliveryPremium = getNonNegativeParam(params.dieselDeliveryPremium, 0.15);
+    const fallbackPremium = dieselInfo?.sourceType === 'nearest_country'
+        ? getNonNegativeParam(params.dieselFallbackPremium, 0.15)
+        : 0;
+    const basePrice = Math.max(Number.isFinite(rawPrice) ? rawPrice : 0, priceFloor);
+
+    return {
+        rawPrice,
+        effectivePrice: basePrice + deliveryPremium + fallbackPremium,
+        priceFloor,
+        deliveryPremium,
+        fallbackPremium
+    };
+}
+
+function computeDieselFuelCostPerMwh(dieselPriceUsdPerLiter, params) {
+    const efficiency = Number.isFinite(params.dieselEfficiency) && params.dieselEfficiency > 0
+        ? params.dieselEfficiency
+        : null;
+    if (!Number.isFinite(dieselPriceUsdPerLiter) || !efficiency) {
+        return Infinity;
+    }
+    return (dieselPriceUsdPerLiter * 1000) / (efficiency * DIESEL_THERMAL_KWH_PER_LITER);
+}
+
+// Per-location constants. All rows in a location share these.
+function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo) {
+    const resolvedWacc = Number.isFinite(localWacc) ? localWacc : params.wacc;
 
     const ilr = Number.isFinite(params.ilr) && params.ilr > 0 ? params.ilr : 1;
     const solarCapexBase = Number.isFinite(localCapex?.solar)
@@ -36,26 +83,174 @@ function computeConfigLcoe(row, params, costMultipliers, localWacc, localCapex) 
     const batteryCapexBase = Number.isFinite(localCapex?.battery)
         ? localCapex.battery
         : params.batteryCapex * (costMultipliers?.battery || 1);
-
     const solarCapexPerKw = solarCapexBase / ilr;
-    const solarCapex = solarCapexPerKw * solarKw;
-    const batteryCapex = batteryCapexBase * batteryKwh;
 
-    const wacc = Number.isFinite(localWacc) ? localWacc : params.wacc;
-    const solarAnnual = solarCapex * capitalRecoveryFactor(wacc, params.solarLife);
-    const batteryAnnual = batteryCapex * capitalRecoveryFactor(wacc, params.batteryLife);
-    const solarOpex = solarCapex * params.solarOpexPct;
-    const batteryOpex = batteryCapex * params.batteryOpexPct;
+    const solarCrf = capitalRecoveryFactor(resolvedWacc, params.solarLife);
+    const batteryCrf = capitalRecoveryFactor(resolvedWacc, params.batteryLife);
 
-    const annualCost = solarAnnual + batteryAnnual + solarOpex + batteryOpex;
-    const annualEnergyMwh = Number.isFinite(row._annualEnergyMwh)
+    const includeDieselBackup = Boolean(params.includeDieselBackup);
+    let dieselPricing = null;
+    let dieselFuelCostPerMwh = 0;
+    let dieselCapexAnnual = 0;
+    let dieselContext = null;
+    if (includeDieselBackup) {
+        dieselPricing = computeEffectiveDieselPriceUsdPerLiter(dieselInfo, params);
+        dieselFuelCostPerMwh = computeDieselFuelCostPerMwh(dieselPricing.effectivePrice, params);
+        const dieselCapex = BASE_LOAD_MW * 1000 * params.dieselCapex;
+        const dieselCrf = capitalRecoveryFactor(resolvedWacc, params.dieselLife);
+        dieselCapexAnnual = dieselCapex * dieselCrf;
+        dieselContext = {
+            sourceYear: dieselInfo?.sourceYear ?? null,
+            sourceType: dieselInfo?.sourceType ?? null,
+            sourceDistanceKm: dieselInfo?.sourceDistanceKm ?? null,
+            sourceIso3: dieselInfo?.sourceIso3 ?? null,
+            sourceCountry: dieselInfo?.sourceCountry ?? null,
+            sourceSeriesName: dieselInfo?.sourceSeriesName ?? null
+        };
+    }
+
+    return {
+        includeDieselBackup,
+        solarCapexPerKw,
+        batteryCapexBase,
+        solarCrf,
+        batteryCrf,
+        solarOpexPct: params.solarOpexPct,
+        batteryOpexPct: params.batteryOpexPct,
+        dieselPricing,
+        dieselFuelCostPerMwh,
+        dieselCapexAnnual,
+        dieselContext
+    };
+}
+
+function computeLcoeMetrics(row, pre) {
+    const solarKw = Number.isFinite(row._solarKw) ? row._solarKw : row.solar_gw * 1_000_000;
+    const batteryKwh = Number.isFinite(row._batteryKwh) ? row._batteryKwh : row.batt_gwh * 1_000_000;
+    const solarShareCf = clampCf(row.annual_cf);
+    const includeDieselBackup = pre.includeDieselBackup;
+    const firmCf = includeDieselBackup ? 1 : solarShareCf;
+    const dieselShareCf = includeDieselBackup ? Math.max(0, 1 - solarShareCf) : 0;
+
+    const solarCapex = pre.solarCapexPerKw * solarKw;
+    const batteryCapex = pre.batteryCapexBase * batteryKwh;
+    const solarAnnual = solarCapex * pre.solarCrf;
+    const batteryAnnual = batteryCapex * pre.batteryCrf;
+    const solarOpex = solarCapex * pre.solarOpexPct;
+    const batteryOpex = batteryCapex * pre.batteryOpexPct;
+
+    let annualCost = solarAnnual + batteryAnnual + solarOpex + batteryOpex;
+    let annualEnergyMwh = Number.isFinite(row._annualEnergyMwh)
         ? row._annualEnergyMwh
-        : row.annual_cf * 8760 * 1000;
+        : solarShareCf * 8760 * BASE_LOAD_MW;
+
+    let dieselPriceUsdPerLiter = null;
+    let dieselRawPriceUsdPerLiter = null;
+    let dieselPriceFloorUsdPerLiter = null;
+    let dieselDeliveryPremiumUsdPerLiter = 0;
+    let dieselFallbackPremiumUsdPerLiter = 0;
+    let dieselSourceYear = null;
+    let dieselSourceType = null;
+    let dieselSourceDistanceKm = null;
+    let dieselSourceCountryIso3 = null;
+    let dieselSourceCountryName = null;
+    let dieselSourceSeriesName = null;
+    let dieselEnergyMwh = 0;
+    let dieselLcoeAdder = 0;
+
+    if (includeDieselBackup) {
+        const dp = pre.dieselPricing;
+        const dc = pre.dieselContext;
+        dieselRawPriceUsdPerLiter = dp.rawPrice;
+        dieselPriceUsdPerLiter = dp.effectivePrice;
+        dieselPriceFloorUsdPerLiter = dp.priceFloor;
+        dieselDeliveryPremiumUsdPerLiter = dp.deliveryPremium;
+        dieselFallbackPremiumUsdPerLiter = dp.fallbackPremium;
+        dieselSourceYear = dc.sourceYear;
+        dieselSourceType = dc.sourceType;
+        dieselSourceDistanceKm = dc.sourceDistanceKm;
+        dieselSourceCountryIso3 = dc.sourceIso3;
+        dieselSourceCountryName = dc.sourceCountry;
+        dieselSourceSeriesName = dc.sourceSeriesName;
+        annualEnergyMwh = 8760 * BASE_LOAD_MW;
+        dieselEnergyMwh = dieselShareCf * annualEnergyMwh;
+
+        if (!Number.isFinite(pre.dieselFuelCostPerMwh)) {
+            return {
+                lcoe: Infinity,
+                annual_energy_mwh: annualEnergyMwh,
+                firm_cf: firmCf,
+                solar_share_cf: solarShareCf,
+                diesel_share_cf: dieselShareCf,
+                diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
+                diesel_raw_price_usd_per_liter: dieselRawPriceUsdPerLiter,
+                diesel_price_floor_usd_per_liter: dieselPriceFloorUsdPerLiter,
+                diesel_delivery_premium_usd_per_liter: dieselDeliveryPremiumUsdPerLiter,
+                diesel_fallback_premium_usd_per_liter: dieselFallbackPremiumUsdPerLiter,
+                diesel_source_year: dieselSourceYear,
+                diesel_source_type: dieselSourceType,
+                diesel_source_distance_km: dieselSourceDistanceKm,
+                diesel_source_country_iso3: dieselSourceCountryIso3,
+                diesel_source_country_name: dieselSourceCountryName,
+                diesel_source_series_name: dieselSourceSeriesName,
+                diesel_energy_mwh: dieselEnergyMwh,
+                diesel_lcoe_adder: Infinity,
+                includeDieselBackup
+            };
+        }
+
+        const dieselFuelAnnual = dieselEnergyMwh * pre.dieselFuelCostPerMwh;
+        annualCost += pre.dieselCapexAnnual + dieselFuelAnnual;
+        dieselLcoeAdder = annualEnergyMwh > 0
+            ? (pre.dieselCapexAnnual + dieselFuelAnnual) / annualEnergyMwh
+            : Infinity;
+    }
 
     if (!Number.isFinite(annualEnergyMwh) || annualEnergyMwh <= 0) {
-        return Infinity;
+        return {
+            lcoe: Infinity,
+            annual_energy_mwh: annualEnergyMwh,
+            firm_cf: firmCf,
+            solar_share_cf: solarShareCf,
+            diesel_share_cf: dieselShareCf,
+            diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
+            diesel_raw_price_usd_per_liter: dieselRawPriceUsdPerLiter,
+            diesel_price_floor_usd_per_liter: dieselPriceFloorUsdPerLiter,
+            diesel_delivery_premium_usd_per_liter: dieselDeliveryPremiumUsdPerLiter,
+            diesel_fallback_premium_usd_per_liter: dieselFallbackPremiumUsdPerLiter,
+            diesel_source_year: dieselSourceYear,
+            diesel_source_type: dieselSourceType,
+            diesel_source_distance_km: dieselSourceDistanceKm,
+            diesel_source_country_iso3: dieselSourceCountryIso3,
+            diesel_source_country_name: dieselSourceCountryName,
+            diesel_source_series_name: dieselSourceSeriesName,
+            diesel_energy_mwh: dieselEnergyMwh,
+            diesel_lcoe_adder: dieselLcoeAdder,
+            includeDieselBackup
+        };
     }
-    return annualCost / annualEnergyMwh;
+
+    return {
+        lcoe: annualCost / annualEnergyMwh,
+        annual_energy_mwh: annualEnergyMwh,
+        firm_cf: firmCf,
+        solar_share_cf: solarShareCf,
+        diesel_share_cf: dieselShareCf,
+        diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
+        diesel_raw_price_usd_per_liter: dieselRawPriceUsdPerLiter,
+        diesel_price_floor_usd_per_liter: dieselPriceFloorUsdPerLiter,
+        diesel_delivery_premium_usd_per_liter: dieselDeliveryPremiumUsdPerLiter,
+        diesel_fallback_premium_usd_per_liter: dieselFallbackPremiumUsdPerLiter,
+        diesel_source_year: dieselSourceYear,
+        diesel_source_type: dieselSourceType,
+        diesel_source_distance_km: dieselSourceDistanceKm,
+        diesel_source_country_iso3: dieselSourceCountryIso3,
+        diesel_source_country_name: dieselSourceCountryName,
+        diesel_source_series_name: dieselSourceSeriesName,
+        diesel_energy_mwh: dieselEnergyMwh,
+        diesel_lcoe_adder: dieselLcoeAdder,
+        includeDieselBackup
+    };
 }
 
 function sortByLocationId(results) {
@@ -71,10 +266,12 @@ function sortByLocationId(results) {
 }
 
 function computeBestLcoe(payload) {
-    const { targetCf, params, costMultipliers, waccByLocation, localCapexByLocation } = payload;
+    const { targetCf, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation } = payload;
+    const cheapestFirm = Boolean(params.includeDieselBackup) && params.dieselBackupMode === 'cheapest-firm';
     const results = [];
 
     STATE.rowsByLocation.forEach((rows, locationId) => {
+        if (!rows.length) return;
         const configPayloads = [];
         let bestMeeting = null;
         let bestFallback = null;
@@ -83,19 +280,26 @@ function computeBestLcoe(payload) {
 
         const localWacc = getLocalWacc(waccByLocation, locationId);
         const localCapex = getLocalCapex(localCapexByLocation, locationId);
+        const dieselInfo = getDieselInfo(dieselByLocation, locationId);
+        const pre = precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo);
 
         rows.forEach((row) => {
-            const lcoe = computeConfigLcoe(row, params, costMultipliers, localWacc, localCapex);
-            const entry = { ...row, lcoe, targetCf };
+            const metrics = computeLcoeMetrics(row, pre);
+            const entry = { ...row, ...metrics, targetCf };
             configPayloads.push(entry);
 
-            if (row.annual_cf >= targetCf) {
-                if (!bestMeeting || lcoe < bestMeeting.lcoe) {
+            const meetsFirmTarget = cheapestFirm ? true : (row.annual_cf >= targetCf);
+            if (meetsFirmTarget) {
+                if (!bestMeeting || metrics.lcoe < bestMeeting.lcoe) {
                     bestMeeting = entry;
                 }
             }
 
-            if (!bestFallback || row.annual_cf > bestFallback.annual_cf) {
+            if (
+                !bestFallback
+                || row.annual_cf > bestFallback.annual_cf
+                || (row.annual_cf === bestFallback.annual_cf && metrics.lcoe < bestFallback.lcoe)
+            ) {
                 bestFallback = entry;
             }
 
@@ -131,21 +335,25 @@ function computeBestLcoe(payload) {
 }
 
 function computeCfAtTargetLcoe(payload) {
-    const { targetLcoe, params, costMultipliers, waccByLocation, localCapexByLocation } = payload;
+    const { targetLcoe, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation } = payload;
     const results = [];
 
     STATE.rowsByLocation.forEach((rows, locationId) => {
+        if (!rows.length) return;
         let bestConfig = null;
         let bestFallback = null;
 
         const localWacc = getLocalWacc(waccByLocation, locationId);
         const localCapex = getLocalCapex(localCapexByLocation, locationId);
+        const dieselInfo = getDieselInfo(dieselByLocation, locationId);
+        const pre = precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo);
 
         rows.forEach((row) => {
-            const lcoe = computeConfigLcoe(row, params, costMultipliers, localWacc, localCapex);
-            const entry = { ...row, lcoe, cf: row.annual_cf, targetLcoe };
+            const metrics = computeLcoeMetrics(row, pre);
+            const cf = Number.isFinite(metrics.firm_cf) ? metrics.firm_cf : row.annual_cf;
+            const entry = { ...row, ...metrics, cf, targetLcoe };
 
-            if (lcoe <= targetLcoe) {
+            if (metrics.lcoe <= targetLcoe) {
                 if (!bestConfig) {
                     bestConfig = entry;
                 } else if (entry.cf > bestConfig.cf) {
@@ -155,15 +363,19 @@ function computeCfAtTargetLcoe(payload) {
                 }
             }
 
-            if (!bestFallback || lcoe < bestFallback.lcoe) {
+            if (!bestFallback || metrics.lcoe < bestFallback.lcoe) {
                 bestFallback = entry;
             }
         });
 
         if (bestConfig) {
-            results.push({ ...bestConfig, meetsTarget: true });
+            results.push({ ...bestConfig, meetsTarget: true, targetLcoeMet: true });
         } else if (bestFallback) {
-            results.push({ ...bestFallback, meetsTarget: false });
+            results.push({
+                ...bestFallback,
+                meetsTarget: params.includeDieselBackup ? true : false,
+                targetLcoeMet: false
+            });
         }
     });
 

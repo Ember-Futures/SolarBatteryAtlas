@@ -101,6 +101,12 @@
 
         <!-- Right Actions -->
         <div class="pointer-events-auto flex gap-2">
+            <a href="scrollytelling/index.html"
+                class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
+                title="Scrollytelling story">
+                <span class="material-symbols-outlined text-[20px]">auto_stories</span>
+                <span class="text-sm font-medium hidden sm:inline">Story</span>
+            </a>
             <button id="info-toggle"
                 class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full w-12 h-12 flex items-center justify-center shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
                 title="Info">
@@ -114,7 +120,7 @@
 
         <!-- Primary Controls Card -->
         <div id="primary-controls"
-            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 transition-all duration-300">
+            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 transition-all duration-300 max-h-[85vh] overflow-y-auto">
             <!-- Header -->
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">System Config</h2>
@@ -164,7 +170,7 @@
 
         <!-- LCOE Controls (Only visible in LCOE mode) -->
         <div id="lcoe-controls"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5">
+            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">LCOE Parameters</h2>
             </div>
@@ -195,6 +201,9 @@
                                 id="target-cf-val">90</span>%</span>
                     </div>
                 </div>
+                <div id="target-cf-backup-note" class="hidden text-[10px] text-gray-500 leading-snug">
+                    With diesel back-up, the target CF still applies to solar + battery. Diesel fills the remaining load to 100%.
+                </div>
 
                 <!-- Target LCOE Input (visible in LCOE mode) -->
                 <div id="target-lcoe-container" class="hidden space-y-2">
@@ -205,6 +214,26 @@
 
                 <!-- LCOE Params Grid -->
                 <div class="grid grid-cols-2 gap-3">
+                    <div class="space-y-2 col-span-2 rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-2">
+                        <label class="flex items-center justify-between gap-3 cursor-pointer">
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Diesel back-up</span>
+                            <input id="diesel-backup-toggle" type="checkbox"
+                                class="h-4 w-4 rounded border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                        </label>
+                        <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet load after solar + battery.</div>
+                        <div id="diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
+                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                                <input type="radio" name="diesel-backup-mode" value="min-solar" checked
+                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                                <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                            </label>
+                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                                <input type="radio" name="diesel-backup-mode" value="cheapest-firm"
+                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                                <span><span class="font-semibold text-gray-200">Cheapest firm:</span> lowest-LCOE config that delivers 100% baseload at any solar share.</span>
+                            </label>
+                        </div>
+                    </div>
                     <label class="space-y-1 col-span-2">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] text-gray-500 uppercase">Capex Source</span>
@@ -252,6 +281,37 @@
                         <span class="text-[10px] text-gray-500 uppercase">Battery Life (yrs)</span>
                         <input id="battery-life" type="number" value="20"
                             class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Capex ($/kW)</span>
+                        <input id="diesel-capex" type="number" value="300"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Efficiency (%)</span>
+                        <input id="diesel-efficiency" type="number" value="35" step="0.1" min="1" max="100"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
+                        <input id="diesel-life" type="number" value="20"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Floor ($/L)</span>
+                        <input id="diesel-price-floor" type="number" value="1.00" step="0.05" min="0"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Delivery Premium ($/L)</span>
+                        <input id="diesel-delivery-premium" type="number" value="0.15" step="0.05" min="0"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                    </label>
+                    <label class="space-y-1 col-span-2">
+                        <span class="text-[10px] text-gray-500 uppercase">Nearest-Country Premium ($/L)</span>
+                        <input id="diesel-fallback-premium" type="number" value="0.15" step="0.05" min="0"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
+                        <div class="text-[10px] text-gray-600">Applied price = max(raw source price, floor) + delivery premium + nearest-country premium when fallback pricing is used.</div>
                     </label>
                     <label class="space-y-1 col-span-2">
                         <div class="flex items-center justify-between">
@@ -305,7 +365,8 @@
                     Demand</button>
             </div>
             <div class="text-[10px] text-gray-500">
-                Assumes 30 MW/km² capacity density.
+                Total = ground-mount (40 MW/km² on technical/policy-suitable land) + rooftop
+                (100 MW/km² on building footprints, Joshi et al. 2024 SSP2 2020).
             </div>
         </div>
 
@@ -522,7 +583,7 @@
                     <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wider">LCOE Parameters</h3>
 
                 <!-- Target CF -->
-                    <div class="space-y-2">
+                    <div id="pop-target-cf-container" class="space-y-2">
                         <label class="text-xs text-gray-400 uppercase">Target Capacity Factor</label>
                         <div class="flex items-center gap-3">
                             <input type="range" id="pop-target-cf-slider" min="50" max="100" step="1" value="90"
@@ -531,9 +592,32 @@
                                     id="pop-target-cf-val">90</span>%</span>
                         </div>
                     </div>
+                    <div id="pop-target-cf-backup-note" class="hidden text-[10px] text-gray-500 leading-snug">
+                        With diesel back-up, the target CF still applies to solar + battery. Diesel fills the remaining load to 100%.
+                    </div>
 
                 <!-- All LCOE Params -->
                     <div class="grid grid-cols-2 gap-2">
+                    <div class="space-y-2 col-span-2 rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-2">
+                        <label class="flex items-center justify-between gap-3 cursor-pointer">
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Diesel back-up</span>
+                            <input id="pop-diesel-backup-toggle" type="checkbox"
+                                class="h-4 w-4 rounded border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                        </label>
+                        <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet load after solar + battery.</div>
+                        <div id="pop-diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
+                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                                <input type="radio" name="pop-diesel-backup-mode" value="min-solar" checked
+                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                                <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                            </label>
+                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                                <input type="radio" name="pop-diesel-backup-mode" value="cheapest-firm"
+                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                                <span><span class="font-semibold text-gray-200">Cheapest firm:</span> lowest-LCOE config that delivers 100% baseload at any solar share.</span>
+                            </label>
+                        </div>
+                    </div>
                     <label class="space-y-1 col-span-2">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] text-gray-500 uppercase">Capex Source</span>
@@ -582,6 +666,37 @@
                         <input id="pop-battery-life" type="number" value="20"
                             class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
                     </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Capex ($/kW)</span>
+                        <input id="pop-diesel-capex" type="number" value="300"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Efficiency (%)</span>
+                        <input id="pop-diesel-efficiency" type="number" value="35" step="0.1" min="1" max="100"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
+                        <input id="pop-diesel-life" type="number" value="20"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Diesel Floor ($/L)</span>
+                        <input id="pop-diesel-price-floor" type="number" value="1.00" step="0.05" min="0"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
+                    </label>
+                    <label class="space-y-1">
+                        <span class="text-[10px] text-gray-500 uppercase">Delivery Premium ($/L)</span>
+                        <input id="pop-diesel-delivery-premium" type="number" value="0.15" step="0.05" min="0"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
+                    </label>
+                    <label class="space-y-1 col-span-2">
+                        <span class="text-[10px] text-gray-500 uppercase">Nearest-Country Premium ($/L)</span>
+                        <input id="pop-diesel-fallback-premium" type="number" value="0.15" step="0.05" min="0"
+                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
+                        <div class="text-[10px] text-gray-600">Applied price = max(raw source price, floor) + delivery premium + nearest-country premium when fallback pricing is used.</div>
+                    </label>
                     <label class="space-y-1 col-span-2">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] text-gray-500 uppercase">WACC (%)</span>
@@ -623,7 +738,7 @@
                             <button data-display="multiple"
                                 class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">× Demand</button>
                         </div>
-                        <div class="text-[10px] text-gray-500">Assumes 30 MW/km² capacity density.</div>
+                        <div class="text-[10px] text-gray-500">Ground-mount 40 MW/km² + rooftop 100 MW/km² (Joshi et al. 2024, SSP2 2020).</div>
                     </div>
                 </div>
             </div>

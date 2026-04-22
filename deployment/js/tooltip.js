@@ -37,21 +37,80 @@ export function buildCfTooltip(cf, solarGw, battGwh) {
     );
 }
 
+export function formatFirmCfText(data) {
+    const firmCf = Number.isFinite(data?.firm_cf) ? data.firm_cf : data?.annual_cf;
+    const solarShareCf = Number.isFinite(data?.solar_share_cf) ? data.solar_share_cf : data?.annual_cf;
+    if (!Number.isFinite(firmCf)) return '--';
+
+    const firmPct = (firmCf * 100).toFixed(1);
+    if (!data?.includeDieselBackup) {
+        return `${firmPct}%`;
+    }
+
+    const solarPct = Number.isFinite(solarShareCf) ? (solarShareCf * 100).toFixed(1) : '--';
+    return `${firmPct}% (${solarPct}% from solar)`;
+}
+
+export function buildDieselBackupLines(data, formatCurrency) {
+    if (!data?.includeDieselBackup) return [];
+
+    const lines = [];
+    if (Number.isFinite(data.diesel_share_cf)) {
+        lines.push(`<div class="text-slate-300">Backup diesel covers ${(data.diesel_share_cf * 100).toFixed(1)}% of annual energy.</div>`);
+    }
+    if (Number.isFinite(data.diesel_price_usd_per_liter)) {
+        lines.push(`<div class="text-slate-400">Diesel price used: ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L</div>`);
+    }
+    if (Number.isFinite(data.diesel_raw_price_usd_per_liter)) {
+        const yearNote = Number.isFinite(data.diesel_source_year) ? ` (${data.diesel_source_year})` : '';
+        const sourceCountry = data.diesel_source_country_name || 'source country';
+        const sourceKind = data.diesel_source_type === 'nearest_country'
+            ? `nearest-country fallback from ${sourceCountry}`
+            : `local source for ${sourceCountry}`;
+        const distanceNote = data.diesel_source_type === 'nearest_country' && Number.isFinite(data.diesel_source_distance_km)
+            ? `, ${data.diesel_source_distance_km.toFixed(0)} km`
+            : '';
+        lines.push(`<div class="text-slate-400">Raw source price: ${formatCurrency(data.diesel_raw_price_usd_per_liter, 2)}/L${yearNote} • ${sourceKind}${distanceNote}</div>`);
+    }
+    const adjustments = [];
+    if (Number.isFinite(data.diesel_price_floor_usd_per_liter)) {
+        adjustments.push(`floor ${formatCurrency(data.diesel_price_floor_usd_per_liter, 2)}/L`);
+    }
+    if (Number.isFinite(data.diesel_delivery_premium_usd_per_liter) && data.diesel_delivery_premium_usd_per_liter > 0) {
+        adjustments.push(`${formatCurrency(data.diesel_delivery_premium_usd_per_liter, 2)}/L delivery`);
+    }
+    if (Number.isFinite(data.diesel_fallback_premium_usd_per_liter) && data.diesel_fallback_premium_usd_per_liter > 0) {
+        adjustments.push(`${formatCurrency(data.diesel_fallback_premium_usd_per_liter, 2)}/L fallback`);
+    }
+    if (adjustments.length) {
+        lines.push(`<div class="text-slate-500">Pricing basis: ${adjustments.join(' + ')}.</div>`);
+    }
+    if (Number.isFinite(data.diesel_lcoe_adder)) {
+        lines.push(`<div class="text-slate-400">Diesel adds ${formatCurrency(data.diesel_lcoe_adder, 1)}/MWh to total LCOE.</div>`);
+    }
+    return lines;
+}
+
 /**
  * Build an LCOE tooltip
  */
 export function buildLcoeTooltip(data, formatCurrency, formatNumber) {
-    const valueLine = data.meetsTarget
-        ? `LCOE: ${data.lcoe ? formatCurrency(data.lcoe) : '--'}/MWh`
-        : `LCOE: ${data.maxConfigLcoe ? `>${formatCurrency(data.maxConfigLcoe)}` : '--'}/MWh`;
+    const valueLine = data.meetsTarget || data.includeDieselBackup
+        ? `LCOE: ${Number.isFinite(data.lcoe) ? formatCurrency(data.lcoe) : '--'}/MWh`
+        : `LCOE: ${Number.isFinite(data.maxConfigLcoe) ? `>${formatCurrency(data.maxConfigLcoe)}` : '--'}/MWh`;
 
     const lines = [
-        `<div>CF ${(data.annual_cf * 100).toFixed(1)}% | Solar ${data.solar_gw} MW_DC | Battery ${data.batt_gwh} MWh</div>`
+        `<div>CF ${formatFirmCfText(data)} | Solar ${data.solar_gw} MW_DC | Battery ${data.batt_gwh} MWh</div>`
     ];
+    lines.push(...buildDieselBackupLines(data, formatCurrency));
 
     if (!data.meetsTarget) {
-        lines.push(`<div class="text-amber-300">Target CF for 1\u00a0MW baseload not met in this dataset.</div>`);
-        lines.push(`<div>Highest config (${data.maxConfigSolar ?? '--'} MW_DC, ${data.maxConfigBatt ?? '--'} MWh)</div>`);
+        if (data.includeDieselBackup) {
+            lines.push(`<div class="text-amber-300">Target solar + battery CF not met; showing the highest-solar-share firm configuration.</div>`);
+        } else {
+            lines.push(`<div class="text-amber-300">Target CF for 1\u00a0MW baseload not met in this dataset.</div>`);
+            lines.push(`<div>Highest config (${data.maxConfigSolar ?? '--'} MW_DC, ${data.maxConfigBatt ?? '--'} MWh)</div>`);
+        }
     }
 
     return buildTooltipHtml(valueLine, lines);

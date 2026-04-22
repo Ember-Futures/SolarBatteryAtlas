@@ -9,7 +9,7 @@ import {
     POTENTIAL_TOTAL_COLORS,
     FEATURE_VORONOI_REUSE
 } from './constants.js';
-import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildPlantTooltip } from './tooltip.js';
+import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines } from './tooltip.js';
 
 let map;
 let markersLayer;
@@ -169,16 +169,59 @@ function getLcoeColor(row, colorInfo, colorScale) {
     if (!row || !colorInfo || !colorScale) return '#611010';
     if (!row.meetsTarget) return '#611010';
     if (colorInfo.type === 'delta') {
-        return Number.isFinite(row.delta) ? colorScale(row.delta) : '#611010';
+        return Number.isFinite(row.lcoe) && Number.isFinite(row.delta) ? colorScale(row.delta) : '#611010';
     }
     if (colorInfo.type === 'tx') {
         const val = row.txMetrics ? row.txMetrics.breakevenPerGwKm : 0;
-        return val > 0 ? colorScale(val) : '#611010';
+        return Number.isFinite(row.lcoe) && val > 0 ? colorScale(val) : '#611010';
     }
-    return colorScale(row.lcoe);
+    return Number.isFinite(row.lcoe) ? colorScale(row.lcoe) : '#611010';
 }
 
 let worldGeoJSON = null;
+let worldGeoJsonPromise = null;
+
+function refreshCurrentMap() {
+    if (!map) return;
+    if (currentMode === 'capacity' && lastData && lastSolar !== null && lastBatt !== null) {
+        updateMap(lastData, lastSolar, lastBatt, { preFiltered: lastDataIsFiltered });
+    } else if (currentMode === 'lcoe' && lastLcoeData) {
+        updateLcoeMap(lastLcoeData, lastLcoeOptions || {});
+    } else if (currentMode === 'lcoe_cf' && lastCfData) {
+        updateCfMap(lastCfData, lastCfOptions || {});
+    } else if (currentMode === 'samples' && lastSampleFrame) {
+        updateMapWithSampleFrame(lastSampleFrame);
+    }
+    if (lastSupplyState && supplyMap) {
+        updateSupplyMap(lastSupplyState);
+    }
+}
+
+function ensureWorldGeoJsonLoaded() {
+    if (worldGeoJSON) return Promise.resolve(worldGeoJSON);
+    if (worldGeoJsonPromise) return worldGeoJsonPromise;
+    const sources = [
+        'data/world.geojson',
+        'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson'
+    ];
+    worldGeoJsonPromise = (async () => {
+        for (const source of sources) {
+            try {
+                const response = await fetch(source);
+                if (!response.ok) continue;
+                worldGeoJSON = await response.json();
+                break;
+            } catch (_) {
+                // Try next source.
+            }
+        }
+        if (!worldGeoJSON) {
+            console.error('Could not load world GeoJSON data from local or remote sources.');
+        }
+        return worldGeoJSON;
+    })();
+    return worldGeoJsonPromise;
+}
 let voronoiClipVersionByMap = new Map();
 let capacityCoordMap = null;
 let capacityCoordMapSource = null;
@@ -295,6 +338,31 @@ function ensureSupplyPopup() {
     return supplyPopup;
 }
 
+function buildLcoeConfigLine(data) {
+    return `<div>CF ${formatFirmCfText(data)} | Solar ${data.solar_gw} MW_DC | Battery ${data.batt_gwh} MWh</div>`;
+}
+
+function buildDieselLocationSummaryText(data) {
+    if (!data?.includeDieselBackup) return '';
+    const parts = [];
+    if (Number.isFinite(data.diesel_share_cf)) {
+        parts.push(`Backup diesel covers ${(data.diesel_share_cf * 100).toFixed(1)}% of annual energy`);
+    }
+    if (Number.isFinite(data.diesel_price_usd_per_liter)) {
+        parts.push(`Diesel used ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L`);
+    }
+    if (Number.isFinite(data.diesel_raw_price_usd_per_liter)) {
+        const sourceKind = data.diesel_source_type === 'nearest_country'
+            ? `raw ${formatCurrency(data.diesel_raw_price_usd_per_liter, 2)}/L from ${data.diesel_source_country_name || 'nearest country'}`
+            : `raw ${formatCurrency(data.diesel_raw_price_usd_per_liter, 2)}/L local`;
+        parts.push(sourceKind);
+    }
+    if (Number.isFinite(data.diesel_lcoe_adder)) {
+        parts.push(`Diesel adds ${formatCurrency(data.diesel_lcoe_adder, 1)}/MWh`);
+    }
+    return parts.join(' • ');
+}
+
 function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
     if (!d) return '';
     if (overlayMode === 'cf') {
@@ -304,19 +372,17 @@ function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
         </div>`;
     }
     if (overlayMode === 'lcoe') {
-        const valueLine = d.meetsTarget
-            ? `LCOE: ${d.lcoe ? formatCurrency(d.lcoe) : '--'}/MWh`
-            : `LCOE: ${d.maxConfigLcoe ? `>${formatCurrency(d.maxConfigLcoe)}` : '--'}/MWh`;
-        return `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
-            <div class="font-semibold">${valueLine}</div>
-            <div>CF ${(d.annual_cf * 100).toFixed(1)}% | Solar ${d.solar_gw} MW_DC | Battery ${d.batt_gwh} MWh</div>
-        </div>`;
+        return buildLcoeTooltip(d, formatCurrency, formatNumber);
     }
     if (overlayMode === 'potential' && potentialState) {
         const level = potentialState.level || 'level1';
         const isMultiple = potentialState.displayMode === 'multiple';
-        const key = level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
-        const total = Number(d[key] || 0);
+        const totalKey = level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
+        const groundKey = level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
+        const rawTotal = Number(d[totalKey]);
+        const ground = Number(d[groundKey] || 0);
+        const rooftop = Number(d.rooftop_twh_y || 0);
+        const total = Number.isFinite(rawTotal) ? rawTotal : ground + rooftop;
         const latVal = Number(d.latitude);
         const bounds = potentialState.latBounds;
         const noData = bounds ? (!Number.isFinite(latVal) || latVal < bounds.min || latVal > bounds.max) : false;
@@ -342,10 +408,15 @@ function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
         } else {
             mainLine = `Solar Generation Potential: ${formatNumber(total, 2)} TWh/yr`;
         }
+        const showBreakdown = !noData && (rooftop > 0 || ground > 0);
+        const breakdownLine = showBreakdown
+            ? `<div class="text-slate-300">Ground-mount: ${formatNumber(ground, 2)} TWh/yr • Rooftop: ${formatNumber(rooftop, 2)} TWh/yr</div>`
+            : '';
         return `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
             <div class="font-semibold">${mainLine}</div>
             ${demandLine}
-            <div class="text-slate-300">${getPotentialLevelLabel(level)} • Assumed ${formatNumber(d.assumed_mw_per_km2, 0)} MW/km²</div>
+            ${breakdownLine}
+            <div class="text-slate-300">${getPotentialLevelLabel(level)} • 40 MW/km² ground, 100 MW/km² rooftop</div>
         </div>`;
     }
     return '';
@@ -476,20 +547,39 @@ export async function initMap(onLocationSelect) {
     overlayLayer = L.layerGroup().addTo(map);
     voronoiLayer = L.svg().addTo(map);
 
-    // Re-render Voronoi on move
+    // Re-render Voronoi on move — RAF-coalesced, and skip redraws when the
+    // viewport hasn't actually changed (tile-loaded moveend, programmatic
+    // nudges, sync echoes all fire moveend without any real view change).
+    let moveendPending = false;
+    let lastMoveZoom = null;
+    let lastMoveCenter = null;
     map.on('moveend', () => {
-        if (currentMode === 'capacity' && lastData && lastSolar !== null && lastBatt !== null) {
-            updateMap(lastData, lastSolar, lastBatt, { preFiltered: lastDataIsFiltered });
-        } else if (currentMode === 'lcoe' && lastLcoeData) {
-            updateLcoeMap(lastLcoeData, lastLcoeOptions || {});
-        } else if (currentMode === 'lcoe_cf' && lastCfData) {
-            updateCfMap(lastCfData, lastCfOptions || {});
-        } else if (currentMode === 'samples' && lastSampleFrame) {
-            updateMapWithSampleFrame(lastSampleFrame);
-        }
-        if (dualMapEnabled && supplyMap && !syncingMaps) {
-            syncMapViews(map, supplyMap);
-        }
+        if (moveendPending) return;
+        moveendPending = true;
+        requestAnimationFrame(() => {
+            moveendPending = false;
+            const zoom = map.getZoom();
+            const center = map.getCenter();
+            const viewportChanged = lastMoveZoom !== zoom
+                || !lastMoveCenter
+                || !lastMoveCenter.equals(center);
+            if (!viewportChanged) return;
+            lastMoveZoom = zoom;
+            lastMoveCenter = center;
+
+            if (currentMode === 'capacity' && lastData && lastSolar !== null && lastBatt !== null) {
+                updateMap(lastData, lastSolar, lastBatt, { preFiltered: lastDataIsFiltered });
+            } else if (currentMode === 'lcoe' && lastLcoeData) {
+                updateLcoeMap(lastLcoeData, lastLcoeOptions || {});
+            } else if (currentMode === 'lcoe_cf' && lastCfData) {
+                updateCfMap(lastCfData, lastCfOptions || {});
+            } else if (currentMode === 'samples' && lastSampleFrame) {
+                updateMapWithSampleFrame(lastSampleFrame);
+            }
+            if (dualMapEnabled && supplyMap && !syncingMaps) {
+                syncMapViews(map, supplyMap);
+            }
+        });
     });
 
     // Store callback
@@ -497,23 +587,9 @@ export async function initMap(onLocationSelect) {
 
     initSupplyMap();
 
-    const worldGeoJsonSources = [
-        'data/world.geojson',
-        'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson'
-    ];
-    for (const source of worldGeoJsonSources) {
-        try {
-            const response = await fetch(source);
-            if (!response.ok) continue;
-            worldGeoJSON = await response.json();
-            break;
-        } catch (_) {
-            // Try next source.
-        }
-    }
-    if (!worldGeoJSON) {
-        console.error('Could not load world GeoJSON data from local or remote sources.');
-    }
+    ensureWorldGeoJsonLoaded().then(() => {
+        refreshCurrentMap();
+    });
 }
 
 function initSupplyMap() {
@@ -627,39 +703,75 @@ function updateLocationPanel(data, color, mode) {
             txInfoEl.classList.add('hidden');
         }
     } else if (mode === 'lcoe') {
-        const targetText = data.targetCf ? `target ${(data.targetCf * 100).toFixed(0)}% CF for 1 MW baseload` : 'target CF for 1 MW baseload';
+        const hasTargetLcoe = Number.isFinite(data.targetLcoe);
+        const targetText = data.targetCf ? `target ${(data.targetCf * 100).toFixed(0)}% solar + battery CF for 1 MW baseload` : 'target solar + battery CF for 1 MW baseload';
         const deltaText = Number.isFinite(data.delta)
             ? ` (Δ ${data.delta >= 0 ? '+' : '-'}${formatCurrency(Math.abs(data.delta), 1)}/MWh vs reference)`
             : '';
-        if (data.meetsTarget) {
-            valueEl.textContent = data.lcoe ? `${formatCurrency(data.lcoe)}/MWh` : '--';
-            labelEl.textContent = `Best LCOE meeting ${targetText}${deltaText}`;
-        } else {
-            const maxText = data.maxConfigLcoe ? `>${formatCurrency(data.maxConfigLcoe)}/MWh` : '--';
-            valueEl.textContent = maxText;
-            labelEl.textContent = 'Target CF not met for 1 MW requirement in this region';
-        }
-        configEl.classList.remove('hidden');
-        if (configTextEl) {
-            if (data.meetsTarget) {
-                configTextEl.textContent = `Solar ${data.solar_gw} MW_DC • Battery ${data.batt_gwh} MWh serving 1 MW baseload.`;
+        if (hasTargetLcoe) {
+            valueEl.textContent = formatFirmCfText(data);
+            if (data.targetLcoeMet !== false) {
+                labelEl.textContent = `Firm CF at ${formatCurrency(data.targetLcoe)}/MWh target`;
             } else {
-                const solar = data.maxConfigSolar ?? data.solar_gw;
-                const batt = data.maxConfigBatt ?? data.batt_gwh;
-                configTextEl.textContent = `Highest config: Solar ${solar ?? '--'} MW_DC • Battery ${batt ?? '--'} MWh`;
+                labelEl.textContent = `Target ${formatCurrency(data.targetLcoe)}/MWh not met; showing lowest-LCOE firm config`;
+            }
+            configEl.classList.remove('hidden');
+            if (configTextEl) {
+                const dieselSummary = buildDieselLocationSummaryText(data);
+                const baseText = `Solar ${data.solar_gw} MW_DC • Battery ${data.batt_gwh} MWh • LCOE ${formatCurrency(data.lcoe)}/MWh`;
+                configTextEl.textContent = dieselSummary ? `${baseText} • ${dieselSummary}` : baseText;
+            }
+            if (txInfoEl) {
+                txInfoEl.classList.add('hidden');
+            }
+        } else if (data.meetsTarget) {
+            valueEl.textContent = Number.isFinite(data.lcoe) ? `${formatCurrency(data.lcoe)}/MWh` : '--';
+            labelEl.textContent = data.includeDieselBackup
+                ? `Best firm-supply LCOE meeting ${targetText}${deltaText}`
+                : `Best LCOE meeting ${targetText}${deltaText}`;
+        } else {
+            if (data.includeDieselBackup) {
+                valueEl.textContent = Number.isFinite(data.lcoe) ? `${formatCurrency(data.lcoe)}/MWh` : '--';
+                labelEl.textContent = 'Target solar + battery CF not met; showing highest-solar-share firm config';
+            } else {
+                const maxText = Number.isFinite(data.maxConfigLcoe) ? `>${formatCurrency(data.maxConfigLcoe)}/MWh` : '--';
+                valueEl.textContent = maxText;
+                labelEl.textContent = 'Target CF not met for 1 MW requirement in this region';
             }
         }
-        if (txInfoEl) {
-            if (data.meetsTarget && data.txMetrics && data.txMetrics.breakevenPerGw > 0) {
-                txInfoEl.classList.remove('hidden');
-                if (txMwhEl) {
-                    txMwhEl.textContent = `${formatCurrency(data.txMetrics.savingsPerMwh, 2)}/MWh`;
+        if (!hasTargetLcoe) {
+            configEl.classList.remove('hidden');
+            if (configTextEl) {
+                if (data.meetsTarget) {
+                    const dieselSummary = buildDieselLocationSummaryText(data);
+                    const firmCfText = data.includeDieselBackup ? `Firm supply ${formatFirmCfText(data)}.` : '';
+                    const baseText = `Solar ${data.solar_gw} MW_DC • Battery ${data.batt_gwh} MWh serving 1 MW baseload.`;
+                    configTextEl.textContent = [firmCfText, baseText, dieselSummary].filter(Boolean).join(' ');
+                } else {
+                    if (data.includeDieselBackup) {
+                        const dieselSummary = buildDieselLocationSummaryText(data);
+                        const firmCfText = `Firm supply ${formatFirmCfText(data)}.`;
+                        const baseText = `Selected fallback: Solar ${data.solar_gw} MW_DC • Battery ${data.batt_gwh} MWh.`;
+                        configTextEl.textContent = [firmCfText, baseText, dieselSummary].filter(Boolean).join(' ');
+                    } else {
+                        const solar = data.maxConfigSolar ?? data.solar_gw;
+                        const batt = data.maxConfigBatt ?? data.batt_gwh;
+                        configTextEl.textContent = `Highest config: Solar ${solar ?? '--'} MW_DC • Battery ${batt ?? '--'} MWh`;
+                    }
                 }
-                if (txGwKmEl) {
-                    txGwKmEl.textContent = `${formatCurrency(data.txMetrics.breakevenPerGwKm / 1000)}/MW/km`;
+            }
+            if (txInfoEl) {
+                if (data.meetsTarget && data.txMetrics && data.txMetrics.breakevenPerGw > 0) {
+                    txInfoEl.classList.remove('hidden');
+                    if (txMwhEl) {
+                        txMwhEl.textContent = `${formatCurrency(data.txMetrics.savingsPerMwh, 2)}/MWh`;
+                    }
+                    if (txGwKmEl) {
+                        txGwKmEl.textContent = `${formatCurrency(data.txMetrics.breakevenPerGwKm / 1000)}/MW/km`;
+                    }
+                } else {
+                    txInfoEl.classList.add('hidden');
                 }
-            } else {
-                txInfoEl.classList.add('hidden');
             }
         }
     } else if (mode === 'population') {
@@ -1105,9 +1217,9 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             marker.on('mouseover', () => {
                 let content;
                 if (overlayMode === 'lcoe' && overlayData) {
-                    const valueLine = overlayData.meetsTarget
-                        ? `LCOE: ${overlayData.lcoe ? formatCurrency(overlayData.lcoe) : '--'}/MWh`
-                        : `LCOE: ${overlayData.maxConfigLcoe ? `>${formatCurrency(overlayData.maxConfigLcoe)}` : '--'}/MWh`;
+                    const valueLine = overlayData.meetsTarget || overlayData.includeDieselBackup
+                        ? `LCOE: ${Number.isFinite(overlayData.lcoe) ? formatCurrency(overlayData.lcoe) : '--'}/MWh`
+                        : `LCOE: ${Number.isFinite(overlayData.maxConfigLcoe) ? `>${formatCurrency(overlayData.maxConfigLcoe)}` : '--'}/MWh`;
                     let infoLines = '';
                     if (overlayData.meetsTarget) {
                         if (lcoeColorInfo?.type === 'tx' && overlayData.txMetrics) {
@@ -1127,12 +1239,18 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
                             infoLines = `<div>Cost delta vs reference: ${overlayData.delta >= 0 ? '+' : '-'}${formatCurrency(Math.abs(overlayData.delta), 2)}/MWh</div>`;
                         }
                     } else {
-                        index = `<div class="text-amber-300">Target CF for 1&nbsp;MW baseload not met in this dataset.</div>`;
-                        infoLines += `<div>Highest config (${overlayData.maxConfigSolar ?? '--'} MW_DC, ${overlayData.maxConfigBatt ?? '--'} MWh)</div>`;
+                        infoLines = overlayData.includeDieselBackup
+                            ? `<div class="text-amber-300">Target solar + battery CF not met; showing the highest-solar-share firm configuration.</div>`
+                            : `<div class="text-amber-300">Target CF for 1&nbsp;MW baseload not met in this dataset.</div>`;
+                        if (!overlayData.includeDieselBackup) {
+                            infoLines += `<div>Highest config (${overlayData.maxConfigSolar ?? '--'} MW_DC, ${overlayData.maxConfigBatt ?? '--'} MWh)</div>`;
+                        }
                     }
+                    const dieselLines = buildDieselBackupLines(overlayData, formatCurrency).join('');
                     content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">${valueLine}</div>
-                    <div>CF ${(overlayData.annual_cf * 100).toFixed(1)}% | Solar ${overlayData.solar_gw} MW_DC | Battery ${overlayData.batt_gwh} MWh</div>
+                    <div>${buildLcoeConfigLine(overlayData)}</div>
+                    ${dieselLines}
                     ${infoLines}
                     ${populationLine}
                     ${capacityLines}
@@ -1272,6 +1390,17 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
         return [point.x, point.y];
     });
 
+    // Hoist per-cell scales out of the fill closures — one allocation per render
+    // instead of one per Voronoi cell.
+    const reliabilityColorScale = d3.scaleLinear()
+        .domain([0, 100])
+        .range(["#ef4444", "#6b7280"])
+        .clamp(true);
+    const noAccessPopScale = d3.scaleLog()
+        .domain([100, 10000, 1000000])
+        .range(["#1e293b", "#991b1b", "#ff0000"])
+        .clamp(true);
+
     // Define base layer fill function (demand layer)
     const baseFill = (d) => {
         if (baseLayer === 'uptime') {
@@ -1282,11 +1411,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             if (!rel || !rel.hrea_covered) return '#1e293b'; // No data
 
             const gridUptime = rel.avg_reliability_access_only !== undefined ? rel.avg_reliability_access_only : rel.avg_reliability;
-            return d3.scaleLinear()
-                .domain([0, 100])
-                .range(["#ef4444", "#6b7280"])
-                .clamp(true)
-                (gridUptime);
+            return reliabilityColorScale(gridUptime);
         }
         if (baseLayer === 'access') {
             // Use coordinate-based lookup with 2 decimals to match source data
@@ -1296,11 +1421,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             if (currentAccessMetric === 'no_access_pop') {
                 const popNoAccess = (rel && rel.hrea_covered) ? (rel.total_pop_reliability || 0) * (rel.pct_no_access || 0) : 0;
                 if (popNoAccess <= 0) return '#111827'; // Darkest grey for universal access
-                return d3.scaleLog()
-                    .domain([100, 10000, 1000000])
-                    .range(["#1e293b", "#991b1b", "#ff0000"])
-                    .clamp(true)
-                    (Math.max(1, popNoAccess));
+                return noAccessPopScale(Math.max(1, popNoAccess));
             }
 
             if (!rel) return '#1e293b'; // No data
@@ -1322,11 +1443,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             }
 
             // Scale 0-100 -> color (Red low -> Grey high) to match scrollytelling uptime map
-            return d3.scaleLinear()
-                .domain([0, 100])
-                .range(["#ef4444", "#6b7280"])
-                .clamp(true)
-                (val);
+            return reliabilityColorScale(val);
         } else if (baseLayer === 'electricity') {
             const key = roundedKey(d.latitude, d.longitude);
             const demandRow = demandByCoord.get(key);
@@ -1361,11 +1478,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             if (currentAccessMetric === 'no_access_pop') {
                 const popNoAccess = (rel.total_pop_reliability || 0) * (rel.pct_no_access || 0);
                 if (popNoAccess <= 0) return '#111827';
-                return d3.scaleLog()
-                    .domain([100, 10000, 1000000])
-                    .range(["#1e293b", "#991b1b", "#ff0000"])
-                    .clamp(true)
-                    (Math.max(1, popNoAccess));
+                return noAccessPopScale(Math.max(1, popNoAccess));
             } else if (currentAccessMetric === 'no_access') {
                 const pct = rel.pct_no_access || 0;
                 if (pct <= 0) return 'rgba(0,0,0,0)'; // Hide if everyone has access
@@ -1375,11 +1488,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             }
 
             // Scale 0-100 -> color (Red low -> Grey high) to match scrollytelling uptime map
-            return d3.scaleLinear()
-                .domain([0, 100])
-                .range(["#ef4444", "#6b7280"])
-                .clamp(true)
-                (val);
+            return reliabilityColorScale(val);
         } else if (overlayMode === 'cf' && cfRow && Number.isFinite(cfRow.annual_cf)) {
             return getColor(cfRow.annual_cf);
         } else if (overlayMode === 'lcoe' && lcoeScale && lcoeRow && Number.isFinite(lcoeRow.lcoe)) {
@@ -1421,7 +1530,8 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
 
     supplyDataByCoord = new Map(data.map(d => [roundedKey(d.latitude, d.longitude), d]));
 
-    const potentialKey = potentialState?.level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
+    const potentialKey = potentialState?.level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
+    const potentialFallbackKey = potentialState?.level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
     const potentialIsMultiple = potentialState?.displayMode === 'multiple';
     const potentialNoDataColor = '#6b7280';
     const potentialScale = overlayMode === 'potential' && potentialState && potentialState.valueCount
@@ -1452,7 +1562,8 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
             return getLcoeColor(row, lcoeColorInfo, colorScale);
         }
         if (overlayMode === 'potential' && potentialState && potentialScale) {
-            const totalVal = Number(row[potentialKey] || 0);
+            const rawTotal = Number(row[potentialKey]);
+            const totalVal = Number.isFinite(rawTotal) ? rawTotal : Number(row[potentialFallbackKey] || 0);
             const latVal = Number(row.latitude);
             const bounds = potentialState.latBounds;
             if (bounds && (!Number.isFinite(latVal) || latVal < bounds.min || latVal > bounds.max)) {
@@ -1748,9 +1859,14 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
 
     if (!potentialData || potentialData.length === 0) return;
 
-    const key = level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
+    const totalKey = level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
+    const groundKey = level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
+    const readTotal = (row) => {
+        const raw = Number(row[totalKey]);
+        return Number.isFinite(raw) ? raw : Number(row[groundKey] || 0);
+    };
     const isMultiple = displayMode === 'multiple';
-    const values = potentialData.map(d => Number(d[key] || 0)).filter(v => Number.isFinite(v));
+    const values = potentialData.map(d => readTotal(d)).filter(v => Number.isFinite(v));
     const scaleMin = Number.isFinite(min) ? min : (values.length ? Math.min(...values) : 0);
     const scaleMax = Number.isFinite(max) ? max : (values.length ? Math.max(...values) : 1);
     const noDataColor = '#6b7280';
@@ -1777,7 +1893,9 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
     });
 
     potentialData.forEach(d => {
-        const total = Number(d[key] || 0);
+        const total = readTotal(d);
+        const ground = Number(d[groundKey] || 0);
+        const rooftop = Number(d.rooftop_twh_y || 0);
         const lat = Number(d.latitude);
         let ratio = null;
         let demandTwh = null;
@@ -1821,10 +1939,15 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
             } else {
                 mainLine = `Solar Generation Potential: ${formatNumber(total, 2)} TWh/yr`;
             }
+            const showBreakdown = !noData && (rooftop > 0 || ground > 0);
+            const breakdownLine = showBreakdown
+                ? `<div class="text-slate-300">Ground-mount: ${formatNumber(ground, 2)} TWh/yr • Rooftop: ${formatNumber(rooftop, 2)} TWh/yr</div>`
+                : '';
             const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
                 <div class="font-semibold">${mainLine}</div>
                 ${demandLine}
-                <div class="text-slate-300">${getPotentialLevelLabel(level)} • Assumed ${formatNumber(d.assumed_mw_per_km2, 0)} MW/km²</div>
+                ${breakdownLine}
+                <div class="text-slate-300">${getPotentialLevelLabel(level)} • 40 MW/km² ground, 100 MW/km² rooftop</div>
             </div>`;
             sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
         });
@@ -1869,7 +1992,7 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
     });
 
     renderVoronoi(mapPoints, potentialData, (row) => {
-        const totalVal = Number(row[key] || 0);
+        const totalVal = readTotal(row);
         const latVal = Number(row.latitude);
         if (latBounds && (!Number.isFinite(latVal) || latVal < latBounds.min || latVal > latBounds.max)) {
             return noDataColor;
@@ -1952,16 +2075,22 @@ ${distanceLine}`;
                     infoLines = `<div>Cost delta vs reference: ${d.delta >= 0 ? '+' : '-'}${formatCurrency(Math.abs(d.delta), 2)}/MWh</div>`;
                 }
             } else {
-                const maxText = d.maxConfigLcoe ? `>${formatCurrency(d.maxConfigLcoe)}/MWh` : '--';
-                infoLines = `<div class="text-amber-300">Target CF for 1&nbsp;MW baseload not met in this dataset.</div>
-                    <div>Highest config (${d.maxConfigSolar ?? '--'} MW_DC, ${d.maxConfigBatt ?? '--'} MWh): ${maxText}</div>`;
+                if (d.includeDieselBackup) {
+                    infoLines = `<div class="text-amber-300">Target solar + battery CF not met; showing the highest-solar-share firm configuration.</div>`;
+                } else {
+                    const maxText = Number.isFinite(d.maxConfigLcoe) ? `>${formatCurrency(d.maxConfigLcoe)}/MWh` : '--';
+                    infoLines = `<div class="text-amber-300">Target CF for 1&nbsp;MW baseload not met in this dataset.</div>
+                        <div>Highest config (${d.maxConfigSolar ?? '--'} MW_DC, ${d.maxConfigBatt ?? '--'} MWh): ${maxText}</div>`;
+                }
             }
-            const valueLine = d.meetsTarget
-                ? `LCOE: ${d.lcoe ? formatCurrency(d.lcoe) : '--'}/MWh`
-                : `LCOE: ${d.maxConfigLcoe ? `>${formatCurrency(d.maxConfigLcoe)}` : '--'}/MWh`;
+            const valueLine = d.meetsTarget || d.includeDieselBackup
+                ? `LCOE: ${Number.isFinite(d.lcoe) ? formatCurrency(d.lcoe) : '--'}/MWh`
+                : `LCOE: ${Number.isFinite(d.maxConfigLcoe) ? `>${formatCurrency(d.maxConfigLcoe)}` : '--'}/MWh`;
+            const dieselLines = buildDieselBackupLines(d, formatCurrency).join('');
             const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
                 <div class="font-semibold">${valueLine}</div>
-                <div>CF ${(d.annual_cf * 100).toFixed(1)}% (share of year 1&nbsp;MW met) | Solar ${d.solar_gw} MW_DC | Battery ${d.batt_gwh} MWh</div>
+                <div>${buildLcoeConfigLine(d)}</div>
+                ${dieselLines}
                 ${infoLines}
              </div>`;
             sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
@@ -2047,7 +2176,8 @@ export function updateCfMap(cfData, options = {}) {
 
         marker.on('mouseover', () => {
             let infoLines = '';
-            if (meetsTarget) {
+            const targetLcoeMet = d.targetLcoeMet !== false;
+            if (targetLcoeMet) {
                 if (reference && Number.isFinite(d.delta)) {
                     const deltaSign = d.delta >= 0 ? '+' : '';
                     infoLines = `<div>CF delta vs reference: ${deltaSign}${(d.delta * 100).toFixed(1)}%</div>`;
@@ -2057,11 +2187,12 @@ export function updateCfMap(cfData, options = {}) {
                     <div>Lowest LCOE config:</div>`;
             }
 
-            const cfPercent = (d.cf * 100).toFixed(1);
+            const dieselLines = buildDieselBackupLines(d, formatCurrency).join('');
             const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
-                <div class="font-semibold">CF: ${meetsTarget ? cfPercent + '%' : '--'}</div>
+                <div class="font-semibold">CF: ${meetsTarget ? formatFirmCfText(d) : '--'}</div>
                 <div>Solar ${d.solar_gw} MW_DC | Battery ${d.batt_gwh} MWh</div>
                 <div>LCOE: ${formatCurrency(d.lcoe)}/MWh</div>
+                ${dieselLines}
                 ${infoLines}
              </div>`;
             sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
