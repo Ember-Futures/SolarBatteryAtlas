@@ -17,7 +17,7 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Baseload Solar Atlas</title>
+    <title>Solar Atlas</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -26,14 +26,20 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
+                        sans: ['Poppins', 'sans-serif'],
                     },
                     colors: {
-                        surface: '#1e1e1e',
-                        'surface-variant': '#2d2d2d',
-                        primary: '#a8c7fa',
-                        'on-surface': '#e3e3e3',
-                        outline: '#8e918f',
+                        surface: '#15181a',
+                        'surface-variant': '#1f2325',
+                        primary: '#13ce74',
+                        'ember-hover': '#1de987',
+                        'on-surface': '#ECEFF5',
+                        outline: '#2a2f31',
+                        'bg-page': '#0b0d0c',
+                        muted: '#9aa19f',
+                        input: '#0f1213',
+                        solar: '#f59e0b',
+                        battery: '#a855f7',
                     }
                 }
             }
@@ -48,18 +54,18 @@
     <link rel="stylesheet" href="css/style.css">
 
     <!-- Fonts (preconnect already added above) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
         rel="stylesheet" />
 </head>
 
 <body
-    class="bg-black text-on-surface font-sans h-screen w-screen overflow-hidden relative selection:bg-primary selection:text-black">
+    class="bg-bg-page text-on-surface font-sans h-screen w-screen overflow-hidden relative selection:bg-primary selection:text-black">
 
     <!-- Map Layer (Full Screen) -->
     <div id="map-shell" class="absolute inset-0 z-0">
-        <div id="map" class="map-pane bg-[#0a0a0a]"></div>
-        <div id="map-supply" class="map-pane bg-[#0a0a0a]"></div>
+        <div id="map" class="map-pane bg-bg-page"></div>
+        <div id="map-supply" class="map-pane bg-bg-page"></div>
     </div>
 
     <!-- Top Bar (Floating) -->
@@ -67,11 +73,27 @@
         <!-- Search/Brand Area -->
         <div
             class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg flex items-center p-1 pr-4 gap-3 h-12">
-            <div
-                class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-inner">
-                <span class="material-symbols-outlined text-white text-[20px]">solar_power</span>
+            <div class="relative w-10 h-10 rounded-full flex items-center justify-center bg-surface-variant ring-1 ring-white/10 shadow-md overflow-hidden">
+                <svg viewBox="0 0 40 40" class="w-[34px] h-[34px]" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <defs>
+                        <linearGradient id="solarAtlasGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#5eead4" />
+                            <stop offset="100%" stop-color="#13ce74" />
+                        </linearGradient>
+                    </defs>
+                    <circle cx="20" cy="20" r="15.5" stroke="url(#solarAtlasGrad)" stroke-width="1.4" />
+                    <path d="M5.5 25 Q 20 21.5 34.5 25" stroke="url(#solarAtlasGrad)" stroke-width="1.4" />
+                    <g stroke="#fbbf24" stroke-width="1.25">
+                        <line x1="20" y1="12.8" x2="20" y2="15.2" />
+                        <line x1="15.2" y1="15.2" x2="16.5" y2="16.5" />
+                        <line x1="24.8" y1="15.2" x2="23.5" y2="16.5" />
+                        <line x1="12.5" y1="19.8" x2="14.4" y2="19.8" />
+                        <line x1="27.5" y1="19.8" x2="25.6" y2="19.8" />
+                    </g>
+                    <circle cx="20" cy="21.8" r="2.9" fill="#fbbf24" stroke="none" />
+                </svg>
             </div>
-            <h1 class="font-medium text-lg tracking-tight text-white hidden sm:block">Baseload Solar Atlas</h1>
+            <h1 class="font-medium text-lg tracking-tight text-white hidden sm:block">Solar Atlas</h1>
         </div>
 
         <!-- View Mode Tabs (Center) -->
@@ -82,19 +104,19 @@
                 Capacity Factor Map
             </button>
             <button data-mode="samples"
-                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-gray-400 hover:text-white hover:bg-white/5">
+                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-muted hover:text-white hover:bg-white/5">
                 Sample Weeks
             </button>
             <button data-mode="potential"
-                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-gray-400 hover:text-white hover:bg-white/5">
+                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-muted hover:text-white hover:bg-white/5">
                 Potential Map
             </button>
             <button data-mode="lcoe"
-                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-gray-400 hover:text-white hover:bg-white/5">
+                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-muted hover:text-white hover:bg-white/5">
                 LCOE Map
             </button>
             <button data-mode="population"
-                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-gray-400 hover:text-white hover:bg-white/5">
+                class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors text-muted hover:text-white hover:bg-white/5">
                 Supply-Demand Matching
             </button>
         </div>
@@ -139,7 +161,7 @@
                                 class="text-sm text-gray-500 ml-1">MW_DC</span></span>
                     </div>
                     <input type="range" id="solar-slider" min="1" max="20" step="1" value="5"
-                        class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 transition-all">
+                        class="slider-solar w-full">
                 </div>
 
                 <!-- Battery Slider -->
@@ -147,11 +169,11 @@
                     <div class="flex justify-between items-end">
                         <label class="text-sm text-gray-300 font-medium">Battery Storage<br><span
                                 class="text-[10px] text-gray-500 font-normal">MWh per MW baseload</span></label>
-                        <span class="text-2xl font-light text-cyan-400"><span id="batt-val">8</span><span
+                        <span class="text-2xl font-light text-battery"><span id="batt-val">8</span><span
                                 class="text-sm text-gray-500 ml-1">MWh</span></span>
                     </div>
                     <input type="range" id="batt-slider" min="0" max="36" step="2" value="8"
-                        class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400 transition-all">
+                        class="slider-battery w-full">
                 </div>
 
                 <!-- Quick Stats (Mini) -->
@@ -179,13 +201,13 @@
                 <!-- Target Mode Toggle -->
                 <div class="space-y-2">
                     <label class="text-xs text-gray-400 uppercase">Target Mode</label>
-                    <div id="lcoe-target-mode-toggle" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+                    <div id="lcoe-target-mode-toggle" class="toggle-group toggle-group-grid">
                         <button data-target-mode="utilization"
-                            class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">
+                            class="toggle-btn is-active">
                             Utilization
                         </button>
                         <button data-target-mode="lcoe"
-                            class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white">
+                            class="toggle-btn">
                             LCOE
                         </button>
                     </div>
@@ -196,7 +218,7 @@
                     <label class="text-xs text-gray-400 uppercase">Target Capacity Factor</label>
                     <div class="flex items-center gap-3">
                         <input type="range" id="target-cf-slider" min="50" max="100" step="1" value="90"
-                            class="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                            class="flex-1">
                         <span class="text-sm font-mono text-emerald-400 w-12 text-right"><span
                                 id="target-cf-val">90</span>%</span>
                     </div>
@@ -209,125 +231,128 @@
                 <div id="target-lcoe-container" class="hidden space-y-2">
                     <label class="text-xs text-gray-400 uppercase">Target LCOE ($/MWh)</label>
                     <input type="number" id="target-lcoe-input" value="90" step="5" min="0"
-                        class="w-full bg-surface-variant border border-white/10 rounded px-3 py-2 text-sm text-white">
+                        class="num-input">
                 </div>
 
-                <!-- LCOE Params Grid -->
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="space-y-2 col-span-2 rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-2">
-                        <label class="flex items-center justify-between gap-3 cursor-pointer">
-                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Diesel back-up</span>
-                            <input id="diesel-backup-toggle" type="checkbox"
-                                class="h-4 w-4 rounded border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                <!-- Section: Solar & Battery Cost -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Solar &amp; Battery Cost</span>
+                        <div id="capex-source-toggle" class="toggle-group">
+                            <button data-mode="global"
+                                class="toggle-btn toggle-btn-sm is-active">Global</button>
+                            <button data-mode="local"
+                                class="toggle-btn toggle-btn-sm">Local</button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 leading-snug">Local uses regional capex (IRENA/IEA/BNEF)
+                        interpolated by year. Global uses the inputs below.</div>
+                    <div id="capex-global-inputs" class="grid grid-cols-2 gap-3">
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Capex ($/kW)</span>
+                            <input id="solar-capex" type="number" value="720" class="num-input">
                         </label>
-                        <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet load after solar + battery.</div>
-                        <div id="diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
-                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
-                                <input type="radio" name="diesel-backup-mode" value="min-solar" checked
-                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
-                                <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Capex ($/kWh)</span>
+                            <input id="battery-capex" type="number" value="120" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Opex (%)</span>
+                            <input id="solar-opex" type="number" value="1.5" step="0.1" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Opex (%)</span>
+                            <input id="battery-opex" type="number" value="2.0" step="0.1" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Life (yrs)</span>
+                            <input id="solar-life" type="number" value="30" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Life (yrs)</span>
+                            <input id="battery-life" type="number" value="20" class="num-input">
+                        </label>
+                        <label class="space-y-1 col-span-2">
+                            <span class="text-[10px] text-gray-500 uppercase">ILR (AC→DC)</span>
+                            <input id="ilr" type="number" value="1.3" step="0.05" min="0.5" class="num-input">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Section: WACC -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">WACC</span>
+                        <div id="wacc-source-toggle" class="toggle-group">
+                            <button data-mode="global"
+                                class="toggle-btn toggle-btn-sm is-active">Global</button>
+                            <button data-mode="local"
+                                class="toggle-btn toggle-btn-sm">Local</button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 leading-snug">Local uses country WACC per Voronoi. Global
+                        uses the input below.</div>
+                    <div id="wacc-global-inputs" class="space-y-1">
+                        <label class="space-y-1 block">
+                            <span class="text-[10px] text-gray-500 uppercase">WACC (%)</span>
+                            <input id="wacc" type="number" value="7.0" step="0.1" class="num-input">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Section: Diesel Generator -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Diesel Generator</span>
+                        <input id="diesel-backup-toggle" type="checkbox" class="check-ember">
+                    </label>
+                    <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet
+                        load after solar + battery.</div>
+                    <div id="diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
+                        <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                            <input type="radio" name="diesel-backup-mode" value="min-solar" checked
+                                class="check-ember mt-0.5">
+                            <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                        </label>
+                        <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                            <input type="radio" name="diesel-backup-mode" value="cheapest-firm"
+                                class="check-ember mt-0.5">
+                            <span><span class="font-semibold text-gray-200">Cheapest firm:</span> lowest-LCOE config that delivers 100% baseload at any solar share.</span>
+                        </label>
+                    </div>
+                    <div id="diesel-source-wrapper" class="hidden space-y-3 pt-1 border-t border-white/5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10px] text-gray-500 uppercase">Diesel Assumptions</span>
+                            <div id="diesel-source-toggle" class="toggle-group">
+                                <button data-mode="global"
+                                    class="toggle-btn toggle-btn-sm is-active">Global</button>
+                                <button data-mode="local"
+                                    class="toggle-btn toggle-btn-sm">Local</button>
+                            </div>
+                        </div>
+                        <div class="text-[10px] text-gray-500 leading-snug">Local uses per-country retail pump prices
+                            (World Bank / GlobalPetrolPrices 2025). Global uses the inputs below.</div>
+                        <div id="diesel-global-inputs" class="grid grid-cols-2 gap-3">
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Price ($/liter)</span>
+                                <input id="diesel-price" type="number" value="1.20" step="0.05" min="0"
+                                    class="num-input">
                             </label>
-                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
-                                <input type="radio" name="diesel-backup-mode" value="cheapest-firm"
-                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
-                                <span><span class="font-semibold text-gray-200">Cheapest firm:</span> lowest-LCOE config that delivers 100% baseload at any solar share.</span>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Capex ($/kW)</span>
+                                <input id="diesel-capex" type="number" value="300" class="num-input">
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Efficiency (%)</span>
+                                <input id="diesel-efficiency" type="number" value="35" step="0.1" min="1" max="100"
+                                    class="num-input">
+                            </label>
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
+                                <input id="diesel-life" type="number" value="20" class="num-input">
                             </label>
                         </div>
                     </div>
-                    <label class="space-y-1 col-span-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] text-gray-500 uppercase">Capex Source</span>
-                            <div id="capex-source-toggle" class="grid grid-cols-2 bg-surface-variant rounded p-0.5">
-                                <button data-mode="global"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-600 text-white shadow-sm">Global</button>
-                                <button data-mode="local"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Local</button>
-                            </div>
-                        </div>
-                        <div class="text-[10px] text-gray-600">Local uses regional capex (IRENA/IEA/BNEF) interpolated
-                            by year; global uses the inputs below.</div>
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Solar Capex ($/kW)</span>
-                        <input id="solar-capex" type="number" value="720"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Battery Capex ($/kWh)</span>
-                        <input id="battery-capex" type="number" value="120"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Solar Opex (%)</span>
-                        <input id="solar-opex" type="number" value="1.5" step="0.1"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">ILR (AC→DC)</span>
-                        <input id="ilr" type="number" value="1.3" step="0.05" min="0.5"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Battery Opex (%)</span>
-                        <input id="battery-opex" type="number" value="2.0" step="0.1"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Solar Life (yrs)</span>
-                        <input id="solar-life" type="number" value="30"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Battery Life (yrs)</span>
-                        <input id="battery-life" type="number" value="20"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Capex ($/kW)</span>
-                        <input id="diesel-capex" type="number" value="300"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Efficiency (%)</span>
-                        <input id="diesel-efficiency" type="number" value="35" step="0.1" min="1" max="100"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
-                        <input id="diesel-life" type="number" value="20"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Floor ($/L)</span>
-                        <input id="diesel-price-floor" type="number" value="1.00" step="0.05" min="0"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Delivery Premium ($/L)</span>
-                        <input id="diesel-delivery-premium" type="number" value="0.15" step="0.05" min="0"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                    </label>
-                    <label class="space-y-1 col-span-2">
-                        <span class="text-[10px] text-gray-500 uppercase">Nearest-Country Premium ($/L)</span>
-                        <input id="diesel-fallback-premium" type="number" value="0.15" step="0.05" min="0"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                        <div class="text-[10px] text-gray-600">Applied price = max(raw source price, floor) + delivery premium + nearest-country premium when fallback pricing is used.</div>
-                    </label>
-                    <label class="space-y-1 col-span-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] text-gray-500 uppercase">WACC (%)</span>
-                            <div id="wacc-source-toggle" class="grid grid-cols-2 bg-surface-variant rounded p-0.5">
-                                <button data-mode="global"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-600 text-white shadow-sm">Global</button>
-                                <button data-mode="local"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Local</button>
-                            </div>
-                        </div>
-                        <input id="wacc" type="number" value="7.0" step="0.1"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1.5 text-xs text-white">
-                        <div class="text-[10px] text-gray-600">Local uses country WACC per Voronoi; global uses the
-                            input.</div>
-                    </label>
                 </div>
 
                 <!-- Footer Note -->
@@ -341,11 +366,11 @@
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Siting Constraints</h2>
             </div>
-            <div id="potential-level-toggle" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+            <div id="potential-level-toggle" class="toggle-group toggle-group-grid">
                 <button data-level="level1"
-                    class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">Technical</button>
+                    class="toggle-btn is-active">Technical</button>
                 <button data-level="level2"
-                    class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white">Policy</button>
+                    class="toggle-btn">Policy</button>
             </div>
             <div class="text-[10px] text-gray-500 leading-snug space-y-1">
                 <div><span class="text-gray-400 font-medium">Technical:</span> excludes rugged terrain, urban/industrial
@@ -356,12 +381,12 @@
             <div class="flex items-center justify-between pt-2">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Display</h2>
             </div>
-            <div id="potential-display-toggle" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+            <div id="potential-display-toggle" class="toggle-group toggle-group-grid">
                 <button data-display="total"
-                    class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white">Total
+                    class="toggle-btn">Total
                     (TWh/yr)</button>
                 <button data-display="multiple"
-                    class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">×
+                    class="toggle-btn is-active">×
                     Demand</button>
             </div>
             <div class="text-[10px] text-gray-500">
@@ -376,7 +401,7 @@
             <div class="space-y-2">
                 <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Select Week</label>
                 <select id="sample-week-select"
-                    class="w-full bg-surface-variant border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50">
+                    class="num-input">
                     <option>Loading...</option>
                 </select>
             </div>
@@ -387,13 +412,13 @@
                     <span id="scrubber-progress" class="text-gray-500 font-mono">Hour 0 / 168</span>
                 </div>
                 <input type="range" id="time-scrubber" min="0" max="167" value="0"
-                    class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-blue-400 transition-all" />
+                    class="w-full" />
                 <div class="text-center text-sm font-mono text-primary" id="scrubber-time">--</div>
             </div>
 
             <div class="flex gap-2">
                 <button id="sample-play"
-                    class="flex-1 py-2 bg-primary text-black rounded-lg font-medium text-sm hover:bg-blue-300 transition-colors">
+                    class="flex-1 py-2 bg-primary text-black rounded-lg font-medium text-sm hover:bg-ember-hover transition-colors">
                     Play
                 </button>
                 <button id="sample-reset"
@@ -419,20 +444,20 @@
                 <!-- Population specific controls here - simplified for now -->
                 <div class="space-y-3">
                     <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Demand Layer</label>
-                <div id="population-base-toggle" class="grid grid-cols-1 gap-1 bg-surface-variant rounded-lg p-1">
+                <div id="population-base-toggle" class="toggle-group toggle-group-col">
                     <button data-base="population"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm text-center">Population</button>
+                        class="toggle-btn is-active text-center">Population</button>
                     <button data-base="electricity"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white text-center">Electricity
+                        class="toggle-btn text-center">Electricity
                         Demand</button>
                     <button data-base="uptime"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white text-center">Grid
+                        class="toggle-btn text-center">Grid
                         Reliability</button>
                     <button data-base="access"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white text-center">Electricity
+                        class="toggle-btn text-center">Electricity
                         Access</button>
                     <button data-base="plants"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white text-center">Capacity
+                        class="toggle-btn text-center">Capacity
                         to Displace</button>
                 </div>
                 <p id="population-demand-description" class="hidden text-xs text-slate-400 mt-2 italic px-1">
@@ -446,7 +471,7 @@
                                 class="text-xs text-gray-500 ml-1">%</span></span>
                     </div>
                     <input type="range" id="reliability-threshold-slider" min="0" max="100" step="5" value="90"
-                        class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                        class="w-full">
                     <div class="text-[10px] text-gray-500">Counts people in bins with uptime &lt; X% (includes no access).</div>
                 </div>
                 </div>
@@ -454,11 +479,11 @@
                 <!-- Plant Status Toggle (visible when baseLayer === 'plants') -->
                 <div id="plant-status-toggle" class="hidden space-y-3">
                     <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Plant Status</label>
-                    <div id="plant-status-buttons" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+                    <div id="plant-status-buttons" class="toggle-group toggle-group-grid">
                         <button data-status="announced"
-                            class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">Announced</button>
+                            class="toggle-btn is-active">Announced</button>
                         <button data-status="existing"
-                            class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white">Existing</button>
+                            class="toggle-btn">Existing</button>
                     </div>
                 </div>
 
@@ -512,11 +537,11 @@
     <!-- Population View Toggle (Bottom Center) -->
     <div id="population-view-toggle"
         class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg p-1 flex gap-1 absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
-        <div id="population-display-toggle" class="grid grid-cols-2 bg-surface-variant rounded-full p-0.5">
+        <div id="population-display-toggle" class="toggle-group toggle-group-grid rounded-full">
             <button data-mode="map"
-                class="px-3 py-1 rounded-full text-[11px] font-medium bg-gray-600 text-white shadow-sm">Map</button>
+                class="toggle-btn is-active">Map</button>
             <button data-mode="charts"
-                class="px-3 py-1 rounded-full text-[11px] font-medium text-gray-400 hover:text-white">Charts</button>
+                class="toggle-btn">Charts</button>
         </div>
     </div>
 
@@ -536,15 +561,15 @@
             <div id="population-supply-body" class="panel-body space-y-4">
                 <div class="space-y-3">
                     <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Supply Layer</label>
-                <div id="population-overlay-mode" class="grid grid-cols-1 gap-1 bg-surface-variant rounded-lg p-1">
+                <div id="population-overlay-mode" class="toggle-group toggle-group-col">
                     <button data-overlay="cf"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm text-center">Capacity
+                        class="toggle-btn is-active text-center">Capacity
                         Factor</button>
                     <button data-overlay="lcoe"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white text-center">Levelized
+                        class="toggle-btn text-center">Levelized
                         Cost of Energy</button>
                     <button data-overlay="potential"
-                        class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white text-center">Potential
+                        class="toggle-btn text-center">Potential
                         Map</button>
                 </div>
             </div>
@@ -562,7 +587,7 @@
                                     class="text-xs text-gray-500 ml-1">MW_DC</span></span>
                         </div>
                         <input type="range" id="pop-solar-slider" min="1" max="20" step="1" value="5"
-                            class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-amber-500">
+                            class="slider-solar w-full">
                     </div>
 
                     <!-- Battery Slider -->
@@ -570,11 +595,11 @@
                         <div class="flex justify-between items-end">
                             <label class="text-xs text-gray-300">Battery Storage<br><span
                                     class="text-[10px] text-gray-500 font-normal">MWh per MW baseload</span></label>
-                            <span class="text-lg font-light text-cyan-400"><span id="pop-batt-val">8</span><span
+                            <span class="text-lg font-light text-battery"><span id="pop-batt-val">8</span><span
                                     class="text-xs text-gray-500 ml-1">MWh</span></span>
                         </div>
                         <input type="range" id="pop-batt-slider" min="0" max="36" step="2" value="8"
-                            class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                            class="slider-battery w-full">
                     </div>
                 </div>
 
@@ -587,7 +612,7 @@
                         <label class="text-xs text-gray-400 uppercase">Target Capacity Factor</label>
                         <div class="flex items-center gap-3">
                             <input type="range" id="pop-target-cf-slider" min="50" max="100" step="1" value="90"
-                                class="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                                class="flex-1">
                             <span class="text-sm font-mono text-emerald-400 w-12 text-right"><span
                                     id="pop-target-cf-val">90</span>%</span>
                         </div>
@@ -596,123 +621,125 @@
                         With diesel back-up, the target CF still applies to solar + battery. Diesel fills the remaining load to 100%.
                     </div>
 
-                <!-- All LCOE Params -->
-                    <div class="grid grid-cols-2 gap-2">
-                    <div class="space-y-2 col-span-2 rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-2">
-                        <label class="flex items-center justify-between gap-3 cursor-pointer">
-                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Diesel back-up</span>
-                            <input id="pop-diesel-backup-toggle" type="checkbox"
-                                class="h-4 w-4 rounded border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
+                <!-- Section: Solar & Battery Cost -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Solar &amp; Battery Cost</span>
+                        <div id="pop-capex-source-toggle" class="toggle-group">
+                            <button data-mode="global"
+                                class="toggle-btn toggle-btn-sm is-active">Global</button>
+                            <button data-mode="local"
+                                class="toggle-btn toggle-btn-sm">Local</button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 leading-snug">Local uses regional capex (IRENA/IEA/BNEF)
+                        interpolated by year. Global uses the inputs below.</div>
+                    <div id="pop-capex-global-inputs" class="grid grid-cols-2 gap-3">
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Capex ($/kW)</span>
+                            <input id="pop-solar-capex" type="number" value="720" class="num-input">
                         </label>
-                        <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet load after solar + battery.</div>
-                        <div id="pop-diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
-                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
-                                <input type="radio" name="pop-diesel-backup-mode" value="min-solar" checked
-                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
-                                <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Capex ($/kWh)</span>
+                            <input id="pop-battery-capex" type="number" value="120" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Opex (%)</span>
+                            <input id="pop-solar-opex" type="number" value="1.5" step="0.1" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Opex (%)</span>
+                            <input id="pop-battery-opex" type="number" value="2.0" step="0.1" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Life (yrs)</span>
+                            <input id="pop-solar-life" type="number" value="30" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Life (yrs)</span>
+                            <input id="pop-battery-life" type="number" value="20" class="num-input">
+                        </label>
+                        <label class="space-y-1 col-span-2">
+                            <span class="text-[10px] text-gray-500 uppercase">ILR (AC→DC)</span>
+                            <input id="pop-ilr" type="number" value="1.3" step="0.05" min="0.5" class="num-input">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Section: WACC -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">WACC</span>
+                        <div id="pop-wacc-source-toggle" class="toggle-group">
+                            <button data-mode="global"
+                                class="toggle-btn toggle-btn-sm is-active">Global</button>
+                            <button data-mode="local"
+                                class="toggle-btn toggle-btn-sm">Local</button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 leading-snug">Local uses country WACC per Voronoi. Global
+                        uses the input below.</div>
+                    <div id="pop-wacc-global-inputs" class="space-y-1">
+                        <label class="space-y-1 block">
+                            <span class="text-[10px] text-gray-500 uppercase">WACC (%)</span>
+                            <input id="pop-wacc" type="number" value="7.0" step="0.1" class="num-input">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Section: Diesel Generator -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Diesel Generator</span>
+                        <input id="pop-diesel-backup-toggle" type="checkbox" class="check-ember">
+                    </label>
+                    <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet
+                        load after solar + battery.</div>
+                    <div id="pop-diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
+                        <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                            <input type="radio" name="pop-diesel-backup-mode" value="min-solar" checked
+                                class="check-ember mt-0.5">
+                            <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                        </label>
+                        <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
+                            <input type="radio" name="pop-diesel-backup-mode" value="cheapest-firm"
+                                class="check-ember mt-0.5">
+                            <span><span class="font-semibold text-gray-200">Cheapest firm:</span> lowest-LCOE config that delivers 100% baseload at any solar share.</span>
+                        </label>
+                    </div>
+                    <div id="pop-diesel-source-wrapper" class="hidden space-y-3 pt-1 border-t border-white/5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10px] text-gray-500 uppercase">Diesel Assumptions</span>
+                            <div id="pop-diesel-source-toggle" class="toggle-group">
+                                <button data-mode="global"
+                                    class="toggle-btn toggle-btn-sm is-active">Global</button>
+                                <button data-mode="local"
+                                    class="toggle-btn toggle-btn-sm">Local</button>
+                            </div>
+                        </div>
+                        <div class="text-[10px] text-gray-500 leading-snug">Local uses per-country retail pump prices
+                            (World Bank / GlobalPetrolPrices 2025). Global uses the inputs below.</div>
+                        <div id="pop-diesel-global-inputs" class="grid grid-cols-2 gap-3">
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Price ($/liter)</span>
+                                <input id="pop-diesel-price" type="number" value="1.20" step="0.05" min="0"
+                                    class="num-input">
                             </label>
-                            <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
-                                <input type="radio" name="pop-diesel-backup-mode" value="cheapest-firm"
-                                    class="mt-0.5 h-3 w-3 border-white/20 bg-surface-variant text-amber-500 focus:ring-amber-500">
-                                <span><span class="font-semibold text-gray-200">Cheapest firm:</span> lowest-LCOE config that delivers 100% baseload at any solar share.</span>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Capex ($/kW)</span>
+                                <input id="pop-diesel-capex" type="number" value="300" class="num-input">
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Efficiency (%)</span>
+                                <input id="pop-diesel-efficiency" type="number" value="35" step="0.1" min="1" max="100"
+                                    class="num-input">
+                            </label>
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
+                                <input id="pop-diesel-life" type="number" value="20" class="num-input">
                             </label>
                         </div>
                     </div>
-                    <label class="space-y-1 col-span-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] text-gray-500 uppercase">Capex Source</span>
-                            <div id="pop-capex-source-toggle" class="grid grid-cols-2 bg-surface-variant rounded p-0.5">
-                                <button data-mode="global"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-600 text-white shadow-sm">Global</button>
-                                <button data-mode="local"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Local</button>
-                            </div>
-                        </div>
-                        <div class="text-[10px] text-gray-600">Local uses regional capex (IRENA/IEA/BNEF) interpolated
-                            by year; global uses the inputs below.</div>
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Solar Capex ($/kW)</span>
-                        <input id="pop-solar-capex" type="number" value="720"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Battery Capex ($/kWh)</span>
-                        <input id="pop-battery-capex" type="number" value="120"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Solar Opex (%)</span>
-                        <input id="pop-solar-opex" type="number" value="1.5" step="0.1"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">ILR (AC→DC)</span>
-                        <input id="pop-ilr" type="number" value="1.3" step="0.05" min="0.5"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Battery Opex (%)</span>
-                        <input id="pop-battery-opex" type="number" value="2.0" step="0.1"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Solar Life (yrs)</span>
-                        <input id="pop-solar-life" type="number" value="30"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Battery Life (yrs)</span>
-                        <input id="pop-battery-life" type="number" value="20"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Capex ($/kW)</span>
-                        <input id="pop-diesel-capex" type="number" value="300"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Efficiency (%)</span>
-                        <input id="pop-diesel-efficiency" type="number" value="35" step="0.1" min="1" max="100"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
-                        <input id="pop-diesel-life" type="number" value="20"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Diesel Floor ($/L)</span>
-                        <input id="pop-diesel-price-floor" type="number" value="1.00" step="0.05" min="0"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[10px] text-gray-500 uppercase">Delivery Premium ($/L)</span>
-                        <input id="pop-diesel-delivery-premium" type="number" value="0.15" step="0.05" min="0"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                    </label>
-                    <label class="space-y-1 col-span-2">
-                        <span class="text-[10px] text-gray-500 uppercase">Nearest-Country Premium ($/L)</span>
-                        <input id="pop-diesel-fallback-premium" type="number" value="0.15" step="0.05" min="0"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                        <div class="text-[10px] text-gray-600">Applied price = max(raw source price, floor) + delivery premium + nearest-country premium when fallback pricing is used.</div>
-                    </label>
-                    <label class="space-y-1 col-span-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] text-gray-500 uppercase">WACC (%)</span>
-                            <div id="pop-wacc-source-toggle" class="grid grid-cols-2 bg-surface-variant rounded p-0.5">
-                                <button data-mode="global"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-600 text-white shadow-sm">Global</button>
-                                <button data-mode="local"
-                                    class="px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Local</button>
-                            </div>
-                        </div>
-                        <input id="pop-wacc" type="number" value="7.0" step="0.1"
-                            class="w-full bg-surface-variant border border-white/10 rounded px-2 py-1 text-xs text-white">
-                        <div class="text-[10px] text-gray-600">Local uses country WACC per Voronoi; global uses the
-                            input.</div>
-                    </label>
-                </div>
                 </div>
 
                 <!-- Potential Overlay Controls (Shown when Potential overlay selected) -->
@@ -720,11 +747,11 @@
                     <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wider">Potential Parameters</h3>
                     <div class="space-y-2">
                         <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Siting Constraints</label>
-                        <div id="supply-potential-level-toggle" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+                        <div id="supply-potential-level-toggle" class="toggle-group toggle-group-grid">
                             <button data-level="level1"
-                                class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">Technical</button>
+                                class="toggle-btn is-active">Technical</button>
                             <button data-level="level2"
-                                class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white">Policy</button>
+                                class="toggle-btn">Policy</button>
                         </div>
                         <div class="text-[10px] text-gray-500 leading-snug">
                             Technical excludes rugged terrain, urban/industrial areas, forests, and very remote zones. Policy adds regulatory limits.
@@ -732,11 +759,11 @@
                     </div>
                     <div class="space-y-2">
                         <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Display</label>
-                        <div id="supply-potential-display-toggle" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+                        <div id="supply-potential-display-toggle" class="toggle-group toggle-group-grid">
                             <button data-display="total"
-                                class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white">Total (TWh/yr)</button>
+                                class="toggle-btn">Total (TWh/yr)</button>
                             <button data-display="multiple"
-                                class="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-600 text-white shadow-sm">× Demand</button>
+                                class="toggle-btn is-active">× Demand</button>
                         </div>
                         <div class="text-[10px] text-gray-500">Ground-mount 40 MW/km² + rooftop 100 MW/km² (Joshi et al. 2024, SSP2 2020).</div>
                     </div>
@@ -751,7 +778,7 @@
         <label class="text-xs text-gray-400 uppercase">Cost Decline Timeline</label>
         <div class="flex items-center gap-3">
             <input type="range" id="lcoe-time-slider" min="2026" max="2050" step="1" value="2026"
-                class="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-400">
+                class="flex-1">
             <span class="text-sm font-mono text-sky-300 w-14 text-right" id="lcoe-time-year">2026</span>
         </div>
         <div class="flex items-center justify-between text-[10px] text-gray-500">
@@ -831,13 +858,11 @@
             <div id="comparison-toggle" class="hidden mt-2 pt-2 border-t border-white/10">
                 <div class="space-y-2">
                     <div class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Display Mode</div>
-                    <div id="lcoe-display-mode" class="grid grid-cols-2 bg-surface-variant rounded-lg p-1">
+                    <div id="lcoe-display-mode" class="toggle-group toggle-group-grid">
                         <button data-mode="delta"
-                            class="px-2 py-1 rounded-md text-[10px] font-medium bg-gray-600 text-white shadow-sm">LCOE
-                            Δ</button>
+                            class="toggle-btn is-active">LCOE Δ</button>
                         <button data-mode="transmission"
-                            class="px-2 py-1 rounded-md text-[10px] font-medium text-gray-400 hover:text-white">TX
-                            Cost</button>
+                            class="toggle-btn">TX Cost</button>
                     </div>
                     <button id="lcoe-clear-ref"
                         class="w-full text-[10px] px-2 py-1 bg-surface-variant rounded text-gray-300 hover:text-white transition-colors">Clear
@@ -874,12 +899,11 @@
             class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="flex justify-between items-center mb-2">
                 <div id="legend-access-title" class="text-xs font-medium text-gray-400 uppercase tracking-wider">Grid Reliability</div>
-                <div id="legend-access-toggle" class="flex bg-slate-800 rounded p-0.5 border border-slate-700">
+                <div id="legend-access-toggle" class="toggle-group">
                     <button id="btn-access-rel"
-                        class="px-2 py-0.5 text-[10px] rounded bg-slate-600 text-white shadow-sm transition-all">Reliability</button>
+                        class="toggle-btn toggle-btn-sm is-active">Reliability</button>
                     <button id="btn-access-none"
-                        class="px-2 py-0.5 text-[10px] rounded text-slate-400 hover:text-white transition-all">No
-                        Access</button>
+                        class="toggle-btn toggle-btn-sm">No Access</button>
                 </div>
             </div>
             <div id="legend-access-bar" class="w-full h-2 rounded-full mb-2"
@@ -950,7 +974,7 @@
             class="relative bg-surface border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto p-8 space-y-6">
             <div class="flex justify-between items-start">
                 <div>
-                    <h2 class="text-2xl font-semibold text-white">Baseload Solar Atlas</h2>
+                    <h2 class="text-2xl font-semibold text-white">Solar Atlas</h2>
                     <p class="text-gray-400 mt-1">Understanding the metrics and models.</p>
                 </div>
                 <button id="info-close" class="text-gray-400 hover:text-white">

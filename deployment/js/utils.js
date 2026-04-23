@@ -60,10 +60,6 @@ export function updateToggleUI(buttons, activeValue, dataAttr = 'mode') {
     if (!buttons?.length) return;
     buttons.forEach(btn => {
         const isActive = btn.dataset[dataAttr] === activeValue;
-        btn.classList.toggle('bg-gray-600', isActive);
-        btn.classList.toggle('text-white', isActive);
-        btn.classList.toggle('shadow-sm', isActive);
-        btn.classList.toggle('text-gray-400', !isActive);
-        btn.classList.toggle('hover:text-white', !isActive);
+        btn.classList.toggle('is-active', isActive);
     });
 }

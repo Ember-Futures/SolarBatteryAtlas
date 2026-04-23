@@ -13,6 +13,10 @@ export const FUEL_COLORS = {
 
 export const BASE_LOAD_MW = 1000;
 export const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
+// Global unsubsidized diesel floor (~crude + refining + delivery, pre-tax).
+// Clamps heavily-subsidized pump prices (Venezuela, Iran, Algeria) up to the
+// true economic cost a genset operator would face.
+export const DIESEL_PRICE_FLOOR_USD_PER_LITER = 0.80;
 
 export const TX_WACC = 0.06;
 export const TX_LIFE = 50;

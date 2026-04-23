@@ -73,7 +73,7 @@ function buildPopulationScale(values) {
 }
 
 function buildLcoeScale(domain, options = {}) {
-    const defaultDomain = [0, 25, 50, 75, 100, 200];
+    const defaultDomain = [0, 30, 90, 130, 165, 200];
     const scaleDomain = Array.isArray(domain) && domain.length >= 3 ? domain.slice() : defaultDomain;
     const underflowMin = Number.isFinite(options.underflowMin) ? options.underflowMin : null;
     // Ensure strictly increasing values to satisfy d3

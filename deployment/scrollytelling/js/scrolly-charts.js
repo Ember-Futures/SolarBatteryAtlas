@@ -854,15 +854,18 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
     document.querySelector('.scrolly-visual')?.classList.add('with-chart');
 }
 
-export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoeParams, targetCfValue, lcoeResults = null) {
+export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoeParams, targetCfValue, lcoeResults = null, options = {}) {
     const container = document.getElementById('chart-container');
     if (!container) return;
 
     ensureCorrectLayout(false);
 
+    const useDiesel = Boolean(options.includeDieselBackup);
     const title = document.querySelector('#chart-layout-single .chart-title');
     const subtitle = document.querySelector('#chart-layout-single .chart-subtitle');
-    if (title) title.textContent = 'Cost of solar + battery system to provide power';
+    if (title) title.textContent = useDiesel
+        ? 'Cost of solar + battery + diesel back-up to provide power'
+        : 'Cost of solar + battery system to provide power';
     if (subtitle) subtitle.textContent = `LCOE ($/MWh) to reach ${targetCfValue}% uptime, sorted by cost for 10% slices of the population without access`;
 
     const targetCf = targetCfValue / 100;
@@ -873,12 +876,29 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     const crfValue = (i, n) => (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1);
     const solarCrf = crfValue(wacc, solarLife);
     const batteryCrf = crfValue(wacc, batteryLife);
+    const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
+    const dieselCapexAnnual = useDiesel
+        ? 1000 * (lcoeParams.dieselCapex ?? 300) * crfValue(wacc, lcoeParams.dieselLife ?? 20)
+        : 0;
+    const dieselFuelCostPerMwh = useDiesel
+        ? ((lcoeParams.dieselPriceUsdPerLiter ?? 1.30) * 1000) / ((lcoeParams.dieselEfficiency ?? 0.35) * DIESEL_THERMAL_KWH_PER_LITER)
+        : 0;
 
     const computeLcoe = (row) => {
         const solarKw = row.solar_gw * 1000;
         const batteryKwh = row.batt_gwh * 1000;
         const annualSolarCost = solarKw * solarCapex * (solarCrf + solarOpexPct);
         const annualBatteryCost = batteryKwh * batteryCapex * (batteryCrf + batteryOpexPct);
+        if (useDiesel) {
+            const solarCf = row.annual_cf;
+            const dieselShareCf = Math.max(0, targetCf - solarCf);
+            const servedCf = Math.max(solarCf, targetCf);
+            const annualMwh = servedCf * 8760;
+            if (annualMwh <= 0) return Infinity;
+            const dieselEnergyMwh = dieselShareCf * 8760;
+            const dieselFuelAnnual = dieselEnergyMwh * dieselFuelCostPerMwh;
+            return (annualSolarCost + annualBatteryCost + dieselCapexAnnual + dieselFuelAnnual) / annualMwh;
+        }
         const annualMwh = row.annual_cf * 8760;
         return annualMwh > 0 ? (annualSolarCost + annualBatteryCost) / annualMwh : Infinity;
     };
@@ -904,10 +924,11 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
             const locRows = locationIndex.get(row.location_id);
             let minLcoe = Infinity;
             locRows.forEach(simRow => {
-                if (simRow.annual_cf >= targetCf && simRow.solar_gw <= 10) {
-                    const lcoe = computeLcoe(simRow);
-                    if (lcoe < minLcoe) minLcoe = lcoe;
-                }
+                if (simRow.solar_gw > 10) return;
+                const meetsTarget = useDiesel ? true : simRow.annual_cf >= targetCf;
+                if (!meetsTarget) return;
+                const lcoe = computeLcoe(simRow);
+                if (lcoe < minLcoe) minLcoe = lcoe;
             });
             if (minLcoe !== Infinity && Number.isFinite(minLcoe)) {
                 lcoeValue = minLcoe;
@@ -1138,7 +1159,7 @@ export async function showGlobalPopulationLcoeChart(populationData, lcoeResults,
         cumulativeLocationIds[i] = runningIds.slice();
     }
 
-    const lcoeDomain = [0, 25, 50, 75, 100, 200];
+    const lcoeDomain = [0, 30, 90, 130, 165, 200];
     const lcoeRange = ["#0b1d3a", "#1d4ed8", "#16a34a", "#eab308", "#f59e0b", "#dc2626"];
     const colorScale = (window.d3 && window.d3.scaleLinear)
         ? window.d3.scaleLinear().domain(lcoeDomain).range(lcoeRange).clamp(true)

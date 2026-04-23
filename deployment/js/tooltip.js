@@ -59,9 +59,6 @@ export function buildDieselBackupLines(data, formatCurrency) {
         lines.push(`<div class="text-slate-300">Backup diesel covers ${(data.diesel_share_cf * 100).toFixed(1)}% of annual energy.</div>`);
     }
     if (Number.isFinite(data.diesel_price_usd_per_liter)) {
-        lines.push(`<div class="text-slate-400">Diesel price used: ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L</div>`);
-    }
-    if (Number.isFinite(data.diesel_raw_price_usd_per_liter)) {
         const yearNote = Number.isFinite(data.diesel_source_year) ? ` (${data.diesel_source_year})` : '';
         const sourceCountry = data.diesel_source_country_name || 'source country';
         const sourceKind = data.diesel_source_type === 'nearest_country'
@@ -70,20 +67,7 @@ export function buildDieselBackupLines(data, formatCurrency) {
         const distanceNote = data.diesel_source_type === 'nearest_country' && Number.isFinite(data.diesel_source_distance_km)
             ? `, ${data.diesel_source_distance_km.toFixed(0)} km`
             : '';
-        lines.push(`<div class="text-slate-400">Raw source price: ${formatCurrency(data.diesel_raw_price_usd_per_liter, 2)}/L${yearNote} • ${sourceKind}${distanceNote}</div>`);
-    }
-    const adjustments = [];
-    if (Number.isFinite(data.diesel_price_floor_usd_per_liter)) {
-        adjustments.push(`floor ${formatCurrency(data.diesel_price_floor_usd_per_liter, 2)}/L`);
-    }
-    if (Number.isFinite(data.diesel_delivery_premium_usd_per_liter) && data.diesel_delivery_premium_usd_per_liter > 0) {
-        adjustments.push(`${formatCurrency(data.diesel_delivery_premium_usd_per_liter, 2)}/L delivery`);
-    }
-    if (Number.isFinite(data.diesel_fallback_premium_usd_per_liter) && data.diesel_fallback_premium_usd_per_liter > 0) {
-        adjustments.push(`${formatCurrency(data.diesel_fallback_premium_usd_per_liter, 2)}/L fallback`);
-    }
-    if (adjustments.length) {
-        lines.push(`<div class="text-slate-500">Pricing basis: ${adjustments.join(' + ')}.</div>`);
+        lines.push(`<div class="text-slate-400">Diesel price: ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L${yearNote} • ${sourceKind}${distanceNote}</div>`);
     }
     if (Number.isFinite(data.diesel_lcoe_adder)) {
         lines.push(`<div class="text-slate-400">Diesel adds ${formatCurrency(data.diesel_lcoe_adder, 1)}/MWh to total LCOE.</div>`);

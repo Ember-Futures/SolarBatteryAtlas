@@ -4,6 +4,8 @@ const STATE = {
 
 const BASE_LOAD_MW = 1000;
 const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
+// Global unsubsidized diesel floor (crude + refining + delivery, pre-tax). Must match constants.js.
+const DIESEL_PRICE_FLOOR_USD_PER_LITER = 0.80;
 
 function capitalRecoveryFactor(rate, years) {
     if (!Number.isFinite(rate) || !Number.isFinite(years) || years <= 0) {
@@ -38,27 +40,23 @@ function clampCf(value) {
     return Math.max(0, Math.min(1, value));
 }
 
-function getNonNegativeParam(value, fallback) {
-    return Number.isFinite(value) && value >= 0 ? value : fallback;
-}
-
 function computeEffectiveDieselPriceUsdPerLiter(dieselInfo, params) {
+    if (params?.dieselPriceMode === 'global') {
+        const globalPrice = Number.isFinite(params?.dieselPrice) ? params.dieselPrice : null;
+        return {
+            rawPrice: globalPrice,
+            effectivePrice: globalPrice
+        };
+    }
     const rawPrice = Number.isFinite(dieselInfo?.rawPrice ?? dieselInfo?.price)
         ? (dieselInfo?.rawPrice ?? dieselInfo?.price)
         : null;
-    const priceFloor = getNonNegativeParam(params.dieselPriceFloor, 1.0);
-    const deliveryPremium = getNonNegativeParam(params.dieselDeliveryPremium, 0.15);
-    const fallbackPremium = dieselInfo?.sourceType === 'nearest_country'
-        ? getNonNegativeParam(params.dieselFallbackPremium, 0.15)
-        : 0;
-    const basePrice = Math.max(Number.isFinite(rawPrice) ? rawPrice : 0, priceFloor);
-
+    const effectivePrice = Number.isFinite(rawPrice)
+        ? Math.max(rawPrice, DIESEL_PRICE_FLOOR_USD_PER_LITER)
+        : null;
     return {
         rawPrice,
-        effectivePrice: basePrice + deliveryPremium + fallbackPremium,
-        priceFloor,
-        deliveryPremium,
-        fallbackPremium
+        effectivePrice
     };
 }
 
@@ -145,10 +143,6 @@ function computeLcoeMetrics(row, pre) {
         : solarShareCf * 8760 * BASE_LOAD_MW;
 
     let dieselPriceUsdPerLiter = null;
-    let dieselRawPriceUsdPerLiter = null;
-    let dieselPriceFloorUsdPerLiter = null;
-    let dieselDeliveryPremiumUsdPerLiter = 0;
-    let dieselFallbackPremiumUsdPerLiter = 0;
     let dieselSourceYear = null;
     let dieselSourceType = null;
     let dieselSourceDistanceKm = null;
@@ -161,11 +155,7 @@ function computeLcoeMetrics(row, pre) {
     if (includeDieselBackup) {
         const dp = pre.dieselPricing;
         const dc = pre.dieselContext;
-        dieselRawPriceUsdPerLiter = dp.rawPrice;
         dieselPriceUsdPerLiter = dp.effectivePrice;
-        dieselPriceFloorUsdPerLiter = dp.priceFloor;
-        dieselDeliveryPremiumUsdPerLiter = dp.deliveryPremium;
-        dieselFallbackPremiumUsdPerLiter = dp.fallbackPremium;
         dieselSourceYear = dc.sourceYear;
         dieselSourceType = dc.sourceType;
         dieselSourceDistanceKm = dc.sourceDistanceKm;
@@ -183,10 +173,6 @@ function computeLcoeMetrics(row, pre) {
                 solar_share_cf: solarShareCf,
                 diesel_share_cf: dieselShareCf,
                 diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-                diesel_raw_price_usd_per_liter: dieselRawPriceUsdPerLiter,
-                diesel_price_floor_usd_per_liter: dieselPriceFloorUsdPerLiter,
-                diesel_delivery_premium_usd_per_liter: dieselDeliveryPremiumUsdPerLiter,
-                diesel_fallback_premium_usd_per_liter: dieselFallbackPremiumUsdPerLiter,
                 diesel_source_year: dieselSourceYear,
                 diesel_source_type: dieselSourceType,
                 diesel_source_distance_km: dieselSourceDistanceKm,
@@ -214,10 +200,6 @@ function computeLcoeMetrics(row, pre) {
             solar_share_cf: solarShareCf,
             diesel_share_cf: dieselShareCf,
             diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-            diesel_raw_price_usd_per_liter: dieselRawPriceUsdPerLiter,
-            diesel_price_floor_usd_per_liter: dieselPriceFloorUsdPerLiter,
-            diesel_delivery_premium_usd_per_liter: dieselDeliveryPremiumUsdPerLiter,
-            diesel_fallback_premium_usd_per_liter: dieselFallbackPremiumUsdPerLiter,
             diesel_source_year: dieselSourceYear,
             diesel_source_type: dieselSourceType,
             diesel_source_distance_km: dieselSourceDistanceKm,
@@ -237,10 +219,6 @@ function computeLcoeMetrics(row, pre) {
         solar_share_cf: solarShareCf,
         diesel_share_cf: dieselShareCf,
         diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-        diesel_raw_price_usd_per_liter: dieselRawPriceUsdPerLiter,
-        diesel_price_floor_usd_per_liter: dieselPriceFloorUsdPerLiter,
-        diesel_delivery_premium_usd_per_liter: dieselDeliveryPremiumUsdPerLiter,
-        diesel_fallback_premium_usd_per_liter: dieselFallbackPremiumUsdPerLiter,
         diesel_source_year: dieselSourceYear,
         diesel_source_type: dieselSourceType,
         diesel_source_distance_km: dieselSourceDistanceKm,

@@ -106,7 +106,7 @@ function buildPopulationScale(values) {
 }
 
 function buildLcoeScale(domain, options = {}) {
-    const defaultDomain = [0, 25, 50, 75, 100, 200];
+    const defaultDomain = [0, 30, 90, 130, 165, 200];
     const scaleDomain = Array.isArray(domain) && domain.length >= 3 ? domain.slice() : defaultDomain;
     const underflowMin = Number.isFinite(options.underflowMin) ? options.underflowMin : null;
     // Ensure strictly increasing values to satisfy d3
@@ -349,12 +349,9 @@ function buildDieselLocationSummaryText(data) {
         parts.push(`Backup diesel covers ${(data.diesel_share_cf * 100).toFixed(1)}% of annual energy`);
     }
     if (Number.isFinite(data.diesel_price_usd_per_liter)) {
-        parts.push(`Diesel used ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L`);
-    }
-    if (Number.isFinite(data.diesel_raw_price_usd_per_liter)) {
         const sourceKind = data.diesel_source_type === 'nearest_country'
-            ? `raw ${formatCurrency(data.diesel_raw_price_usd_per_liter, 2)}/L from ${data.diesel_source_country_name || 'nearest country'}`
-            : `raw ${formatCurrency(data.diesel_raw_price_usd_per_liter, 2)}/L local`;
+            ? `Diesel ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L from ${data.diesel_source_country_name || 'nearest country'}`
+            : `Diesel ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L local`;
         parts.push(sourceKind);
     }
     if (Number.isFinite(data.diesel_lcoe_adder)) {

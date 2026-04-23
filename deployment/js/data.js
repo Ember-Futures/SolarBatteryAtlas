@@ -2,7 +2,7 @@ import { readParquet } from './parquet_wasm.js';
 
 // Initialize WASM
 let wasmModule = null;
-const DIESEL_DATA_VERSION = '2026-04-21-fix3';
+const DIESEL_DATA_VERSION = '2026-04-22-retail';
 
 async function initWasm() {
     if (wasmModule) return wasmModule;
