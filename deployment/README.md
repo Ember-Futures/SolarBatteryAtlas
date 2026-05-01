@@ -1,10 +1,10 @@
-# Baseload Solar Atlas
+# Solar Atlas
 
 An interactive web-based tool that simulates and visualizes the feasibility of achieving 24/7 baseload power supply using solar photovoltaics and battery storage across thousands of locations worldwide.
 
 ## Overview
 
-The Baseload Solar Atlas answers a fundamental question: **Can solar + battery storage alone provide constant "baseload" power 24/7/365?**
+The Solar Atlas answers a fundamental question: **Can solar + battery storage alone provide constant "baseload" power 24/7/365?**
 
 This tool simulates a 1 GW constant load at thousands of locations worldwide, calculating:
 - How much solar capacity (GW_DC) and battery storage (GWh) is needed to meet that load

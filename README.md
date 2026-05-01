@@ -2,7 +2,7 @@
 
 This repo splits the experience into:
 
-- `deployment/` — everything that gets deployed to GitHub Pages, including the interactive atlas and the scrollytelling story at `deployment/scrollytelling/`.
+- `deployment/` — everything that gets deployed to GitHub Pages, including the interactive atlas and the "Article: Harnessing the Sun" at `deployment/scrollytelling/`.
 - `workspace/` — the pipeline scripts, source data, and caches used to regenerate `deployment/data`.
 
 ## What’s new in the Atlas
