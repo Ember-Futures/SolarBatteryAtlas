@@ -14,7 +14,7 @@ import {
     updateLcoeMap, updateCfMap, updateMapWithSampleFrame,
     setSampleLocationClickHandler, capitalRecoveryFactor, updatePopulationSimple,
     initSubsetMap, renderSubsetMap, subsetMap, setAccessMetric, updatePotentialMap,
-    updateSupplyMap, setDualMapMode
+    updateSupplyMap, setDualMapMode, ensureWorldGeoJsonLoaded
 } from './map.js';
 import { initSampleDays, loadSampleWeekData, cleanupSampleDays } from './samples.js';
 import {
@@ -615,17 +615,11 @@ const locTxInfoEl = document.getElementById('loc-tx-info');
 const mapShell = document.getElementById('map-shell');
 const populationChartsContainer = document.getElementById('population-charts');
 const populationChartHistogram = document.getElementById('population-chart-histogram');
-const populationChartLatMetric = document.getElementById('population-chart-lat-metric');
-const populationChartLatPop = document.getElementById('population-chart-lat-pop');
+const populationChartLatCombined = document.getElementById('population-chart-lat-combined');
 const closeChartsBtn = document.getElementById('close-charts'); // New
 const populationChartHistogramTitle = document.getElementById('population-chart-histogram-title');
 const populationChartHistogramLabel = document.getElementById('population-chart-histogram-label');
-const populationChartLatMetricTitle = document.getElementById('population-chart-lat-metric-title');
-const populationChartLatMetricLabel = document.getElementById('population-chart-lat-metric-label');
-const populationChartLatPopTitle = document.getElementById('population-chart-lat-pop-title');
-const populationChartLatPopLabel = document.getElementById('population-chart-lat-pop-label');
 const populationChartMetricLabel = document.getElementById('population-chart-metric-label');
-const populationChartLatPopHelper = document.getElementById('population-chart-lat-pop-helper');
 const chartTitleDemandLatitude = document.getElementById('chart-title-demand-latitude');
 const chartTitleSupplyLatitude = document.getElementById('chart-title-supply-latitude');
 
@@ -648,10 +642,64 @@ let lcoeControlsOriginalNextSibling = null;
 let populationDisplayMode = 'map';
 let populationCharts = {
     histogram: null,
-    latMetric: null,
-    latPop: null,
+    latCombined: null,
     metric: null
 };
+
+// World-map silhouette painted behind the combined latitude chart.
+// Loaded once; the plugin re-rasters into an offscreen canvas whenever the chart area resizes.
+let _chartWorldGeoJson = null;
+const _worldMapBackgroundPlugin = {
+    id: 'worldMapBackground',
+    _cacheKey: null,
+    _cache: null,
+    beforeDatasetsDraw(chart) {
+        if (!_chartWorldGeoJson || !window.d3) return;
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !scales || !scales.y) return;
+        const yScale = scales.y;
+        const top = yScale.getPixelForValue(90);
+        const bottom = yScale.getPixelForValue(-90);
+        const left = chartArea.left;
+        const right = chartArea.right;
+        const w = Math.max(1, Math.round(right - left));
+        const h = Math.max(1, Math.round(bottom - top));
+        const cacheKey = `${w}x${h}`;
+        if (this._cacheKey !== cacheKey) {
+            const off = document.createElement('canvas');
+            off.width = w;
+            off.height = h;
+            const oc = off.getContext('2d');
+            const transform = window.d3.geoTransform({
+                point(lambda, phi) {
+                    const x = ((lambda + 180) / 360) * w;
+                    const y = (1 - (phi + 90) / 180) * h;
+                    this.stream.point(x, y);
+                }
+            });
+            const path = window.d3.geoPath(transform, oc);
+            oc.fillStyle = 'rgba(148, 163, 184, 0.18)';
+            oc.beginPath();
+            path(_chartWorldGeoJson);
+            oc.fill();
+            this._cache = off;
+            this._cacheKey = cacheKey;
+        }
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, right - left, bottom - top);
+        ctx.clip();
+        ctx.drawImage(this._cache, left, top, w, h);
+        ctx.restore();
+    }
+};
+// Kick off geojson load once and trigger a redraw of the combined chart when it lands.
+ensureWorldGeoJsonLoaded().then(gj => {
+    _chartWorldGeoJson = gj;
+    if (populationCharts && populationCharts.latCombined) {
+        populationCharts.latCombined.update('none');
+    }
+}).catch(() => {});
 let accessCharts = {
     uptime: null,
     supply: null,
@@ -3742,7 +3790,7 @@ function handleHistogramClick(bucket, metrics, overlayMode, baseLayer) {
 }
 
 async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selectedFuels, potentialState = null, supplyRows = [] }) {
-    if (!populationChartHistogram || !populationChartLatMetric || !populationChartLatPop) return;
+    if (!populationChartHistogram || !populationChartLatCombined) return;
 
     // Dynamically load Chart.js if not already loaded
     await ensureChartJsLoaded();
@@ -4000,7 +4048,7 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
         populationCharts.histogram.update();
     }
 
-    // Supply by Latitude (Bottom-Left)
+    // Combined Demand + Supply by Latitude (dual x-axis, world map background)
     const normalizeMetric = (val) => {
         if (!Number.isFinite(val)) return val;
         if (isCf) return val * 100;
@@ -4014,98 +4062,10 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
         .filter(m => Number.isFinite(m.latitude) && Number.isFinite(m.metric));
     const metricScatterData = supplyScatterRows.map(m => ({ x: m.metric, y: m.latitude }));
 
-    // Update labels for bottom-left
-    if (populationChartLatMetricTitle) {
-        populationChartLatMetricTitle.textContent = isCf
-            ? 'CF by latitude'
-            : isLcoe
-                ? 'LCOE by latitude'
-                : isPotential
-                    ? (potentialIsMultiple ? 'Solar potential / demand by latitude' : 'Solar potential by latitude')
-                    : 'Supply metric by latitude';
-    }
-
-    const supplyChartIsBinned = potentialIsTotal;
-    if (supplyChartIsBinned) {
-        const supplyLatHistogram = buildLatitudeSupplyHistogram(supplyRows);
-        if (!populationCharts.latMetric || populationCharts.latMetric.config.type !== 'bar') {
-            destroyChart(populationCharts.latMetric);
-            populationCharts.latMetric = new ChartJS(populationChartLatMetric.getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: supplyLatHistogram.labels,
-                    datasets: [{
-                        label: 'Supply share (%)',
-                        data: supplyLatHistogram.data,
-                        backgroundColor: '#38bdf8',
-                        borderColor: '#0ea5e9',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { title: { display: true, text: 'Supply share (%)' } },
-                        y: { title: { display: true, text: 'Latitude band' } }
-                    }
-                }
-            });
-        } else {
-            populationCharts.latMetric.data.labels = supplyLatHistogram.labels;
-            populationCharts.latMetric.data.datasets[0].data = supplyLatHistogram.data;
-            populationCharts.latMetric.update();
-        }
-    } else {
-        const stats = computeLatBandStats(supplyScatterRows);
-        const medianData = stats.map(s => ({ x: s.p50, y: s.lat }));
-
-        const datasets = [
-            {
-                type: 'line',
-                label: 'Median',
-                data: medianData,
-                borderColor: '#38bdf8',
-                borderWidth: 2,
-                pointRadius: 0,
-                tension: 0.3,
-                spanGaps: true
-            },
-            {
-                type: 'scatter',
-                label: scatterXAxisLabel,
-                data: metricScatterData,
-                backgroundColor: 'rgba(52, 211, 153, 0.4)',
-                pointRadius: 2
-            }
-        ];
-
-        if (!populationCharts.latMetric || populationCharts.latMetric.config.type !== 'scatter') {
-            destroyChart(populationCharts.latMetric);
-            populationCharts.latMetric = new ChartJS(populationChartLatMetric.getContext('2d'), {
-                type: 'scatter',
-                data: { datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { title: { display: true, text: scatterXAxisLabel } },
-                        y: { title: { display: true, text: 'Latitude' }, min: -90, max: 90 }
-                    }
-                }
-            });
-        } else {
-            populationCharts.latMetric.data.datasets = datasets;
-            populationCharts.latMetric.options.scales.x.title.text = scatterXAxisLabel;
-            populationCharts.latMetric.update();
-        }
-    }
-
-    // Latitude Population/Capacity Histogram (Bottom-Right)
-    const popHistogram = buildWeightedLatitudeHistogram(metrics);
+    // Demand profile: latitude band → share (%). 5° bins keep the curve smooth without
+    // ocean-band zigzag (1.8° bins flap between 0% and population peaks).
+    const DEMAND_BIN_COUNT = 36;
+    const popHistogram = buildWeightedLatitudeHistogram(metrics, DEMAND_BIN_COUNT);
     const latPopLabel = baseLayer === 'electricity'
         ? 'Electricity demand share (%)'
         : baseLayer === 'plants'
@@ -4115,40 +4075,176 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
                 : baseLayer === 'uptime'
                     ? `Below ${reliabilityThreshold}% uptime share (%)`
                     : 'Population share (%)';
-    const latPopAxisLabel = latPopLabel;
+    const histogramToLineData = (hist) => hist.labels
+        .map((label, i) => ({ x: hist.data[i], y: parseFloat(label) }))
+        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y))
+        .sort((a, b) => a.y - b.y);
+    // Anchor at ±90° so stepped histogram lines reach the chart's latitude bounds
+    // (last bin midpoint is ±87.5°, otherwise leaving a visible gap to the pole).
+    const anchorLineToPoles = (data) => {
+        if (!data.length) return data;
+        const first = data[0];
+        const last = data[data.length - 1];
+        const out = data.slice();
+        if (first.y > -90) out.unshift({ x: first.x, y: -90 });
+        if (last.y < 90) out.push({ x: last.x, y: 90 });
+        return out;
+    };
+    const demandLineData = anchorLineToPoles(histogramToLineData(popHistogram));
+    const demandPeak = demandLineData.reduce((m, p) => Math.max(m, p.x || 0), 0);
+    // Add 30% headroom past the histogram peak so the step doesn't sit on the right axis.
+    const demandSuggestedMax = demandPeak > 0 ? demandPeak * 1.3 : 1;
 
-    if (populationChartLatPopLabel) populationChartLatPopLabel.textContent = `${weightDescriptor} by latitude`;
+    // Supply line: median per latitude band (CF/LCOE/potential-multiple) or share-by-band (potential-total)
+    const supplyChartIsBinned = potentialIsTotal;
+    let supplyLineData;
+    let supplyLineLabel;
+    if (supplyChartIsBinned) {
+        const supplyLatHistogram = buildLatitudeSupplyHistogram(supplyRows, DEMAND_BIN_COUNT);
+        supplyLineData = histogramToLineData(supplyLatHistogram);
+        supplyLineLabel = 'Supply share (%)';
+    } else {
+        const stats = computeLatBandStats(supplyScatterRows);
+        supplyLineData = stats
+            .filter(s => Number.isFinite(s.p50) && Number.isFinite(s.lat))
+            .map(s => ({ x: s.p50, y: s.lat }))
+            .sort((a, b) => a.y - b.y);
+        supplyLineLabel = `Median ${scatterXAxisLabel}`;
+    }
 
-    if (!populationCharts.latPop) {
-        populationCharts.latPop = new ChartJS(populationChartLatPop.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: popHistogram.labels,
-                datasets: [{
-                    label: latPopLabel,
-                    data: popHistogram.data,
-                    backgroundColor: '#fbbf24',
-                    borderColor: '#f59e0b',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { title: { display: true, text: latPopAxisLabel } },
-                    y: { title: { display: true, text: 'Latitude band' } }
-                }
+    const datasets = [
+        {
+            type: 'line',
+            label: latPopLabel,
+            data: demandLineData,
+            xAxisID: 'xDemand',
+            yAxisID: 'y',
+            borderColor: '#fbbf24',
+            backgroundColor: 'rgba(251, 191, 36, 0.22)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            stepped: 'middle',
+            fill: 'origin',
+            spanGaps: false,
+            order: 2
+        },
+        {
+            type: 'line',
+            label: supplyLineLabel,
+            data: supplyLineData,
+            xAxisID: 'xSupply',
+            yAxisID: 'y',
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.0)',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            tension: 0.4,
+            fill: false,
+            spanGaps: true,
+            order: 1
+        }
+    ];
+
+    if (!supplyChartIsBinned && metricScatterData.length) {
+        datasets.push({
+            type: 'scatter',
+            label: scatterXAxisLabel,
+            data: metricScatterData,
+            xAxisID: 'xSupply',
+            yAxisID: 'y',
+            backgroundColor: 'rgba(52, 211, 153, 0.25)',
+            borderColor: 'rgba(52, 211, 153, 0)',
+            pointRadius: 1.5,
+            pointHoverRadius: 3,
+            order: 3
+        });
+    }
+
+    const formatX = (val, axisId) => {
+        if (!Number.isFinite(val)) return '';
+        if (axisId === 'xDemand') return `${val.toFixed(2)}%`;
+        if (isCf) return `${val.toFixed(1)}%`;
+        if (isLcoe) return `$${val.toFixed(0)}`;
+        if (isPotential) return potentialIsMultiple ? `${val.toFixed(2)}×` : val.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        return val.toFixed(2);
+    };
+
+    const tooltipCallbacks = {
+        title: (items) => {
+            if (!items || !items.length) return '';
+            const lat = items[0].parsed.y;
+            return Number.isFinite(lat) ? `Latitude ${lat.toFixed(1)}°` : '';
+        },
+        label: (ctx) => {
+            const ds = ctx.dataset;
+            const xVal = ctx.parsed.x;
+            const axisId = ds.xAxisID || 'xSupply';
+            return `${ds.label}: ${formatX(xVal, axisId)}`;
+        }
+    };
+
+    const baseOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        parsing: false,
+        normalized: true,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                mode: 'nearest',
+                intersect: false,
+                axis: 'y',
+                callbacks: tooltipCallbacks
             }
+        },
+        scales: {
+            xDemand: {
+                position: 'top',
+                title: { display: true, text: latPopLabel, color: '#fbbf24' },
+                grid: { color: 'rgba(255,255,255,0.04)', drawOnChartArea: true },
+                ticks: { color: '#fbbf24', callback: (v) => `${Number(v).toFixed(1)}%` },
+                min: 0,
+                suggestedMax: demandSuggestedMax
+            },
+            xSupply: {
+                position: 'bottom',
+                title: { display: true, text: scatterXAxisLabel, color: '#38bdf8' },
+                grid: { color: 'rgba(255,255,255,0.04)', drawOnChartArea: false },
+                ticks: { color: '#38bdf8' },
+                min: 0
+            },
+            y: {
+                min: -90,
+                max: 90,
+                title: { display: true, text: 'Latitude' },
+                ticks: {
+                    stepSize: 30,
+                    callback: (v) => `${v}°`,
+                    color: '#9ca3af'
+                },
+                grid: { color: 'rgba(255,255,255,0.06)' }
+            }
+        }
+    };
+
+    if (!populationCharts.latCombined) {
+        populationCharts.latCombined = new ChartJS(populationChartLatCombined.getContext('2d'), {
+            type: 'scatter',
+            data: { datasets },
+            options: baseOptions,
+            plugins: [_worldMapBackgroundPlugin]
         });
     } else {
-        populationCharts.latPop.data.labels = popHistogram.labels;
-        populationCharts.latPop.data.datasets[0].label = latPopLabel;
-        populationCharts.latPop.data.datasets[0].data = popHistogram.data;
-        populationCharts.latPop.options.scales.x.title.text = latPopAxisLabel;
-        populationCharts.latPop.update();
+        populationCharts.latCombined.data.datasets = datasets;
+        const opts = populationCharts.latCombined.options;
+        opts.scales.xDemand.title.text = latPopLabel;
+        opts.scales.xDemand.suggestedMax = demandSuggestedMax;
+        opts.scales.xSupply.title.text = scatterXAxisLabel;
+        opts.plugins.tooltip.callbacks = tooltipCallbacks;
+        populationCharts.latCombined.update();
     }
 }
 

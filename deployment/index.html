@@ -1066,15 +1066,24 @@
                 <button id="close-charts" class="text-primary hover:text-white text-sm font-medium">Back to Map</button>
             </div>
 
-            <!-- Latitude Charts - Side by Side (Demand / Supply) -->
-            <div id="standard-charts-container" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-surface border border-white/10 rounded-xl p-6">
-                    <h3 id="chart-title-demand-latitude" class="text-sm font-medium text-gray-400 mb-4">Demand by Latitude</h3>
-                    <div class="h-64"><canvas id="population-chart-lat-pop"></canvas></div>
-                </div>
-                <div class="bg-surface border border-white/10 rounded-xl p-6">
-                    <h3 id="chart-title-supply-latitude" class="text-sm font-medium text-gray-400 mb-4">Supply by Latitude</h3>
-                    <div class="h-64"><canvas id="population-chart-lat-metric"></canvas></div>
+            <!-- Combined Demand + Supply by Latitude (dual x-axis with world map background) -->
+            <div id="standard-charts-container">
+                <div id="combined-latitude-chart-card" class="bg-surface border border-white/10 rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                        <div>
+                            <h3 id="chart-title-combined-latitude" class="text-sm font-medium text-gray-400">Demand &amp; Supply by Latitude</h3>
+                            <p class="text-xs text-gray-500 mt-1">
+                                <span id="chart-title-demand-latitude">Population by Latitude</span>
+                                <span class="text-gray-600 mx-1">·</span>
+                                <span id="chart-title-supply-latitude">Capacity Factor by Latitude</span>
+                            </p>
+                        </div>
+                        <div class="text-xs flex gap-4 text-gray-400">
+                            <span class="flex items-center"><span class="inline-block w-3 h-2 rounded-sm mr-1.5" style="background:#fbbf24"></span>Demand (top axis)</span>
+                            <span class="flex items-center"><span class="inline-block w-3 h-2 rounded-sm mr-1.5" style="background:#38bdf8"></span>Supply (bottom axis)</span>
+                        </div>
+                    </div>
+                    <div class="relative h-96"><canvas id="population-chart-lat-combined"></canvas></div>
                 </div>
             </div>
 

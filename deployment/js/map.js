@@ -197,7 +197,7 @@ function refreshCurrentMap() {
     }
 }
 
-function ensureWorldGeoJsonLoaded() {
+export function ensureWorldGeoJsonLoaded() {
     if (worldGeoJSON) return Promise.resolve(worldGeoJSON);
     if (worldGeoJsonPromise) return worldGeoJsonPromise;
     const sources = [
