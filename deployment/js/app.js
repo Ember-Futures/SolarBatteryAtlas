@@ -1781,6 +1781,11 @@ function setViewModeExplanation(mode) {
 
 function setInputValue(input, value) {
     if (!input) return;
+    // Strip JS float artifacts (e.g. 0.07 * 100 → 7.000000000000001) before display.
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        input.value = Number(value.toFixed(6)).toString();
+        return;
+    }
     input.value = value;
 }
 
