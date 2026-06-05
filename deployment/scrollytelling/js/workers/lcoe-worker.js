@@ -14,6 +14,22 @@ function capitalRecoveryFactor(rate, years) {
     return denominator === 0 ? 0 : numerator / denominator;
 }
 
+// Level-equivalent annual multiplier for a stream growing at `growth`/yr over
+// `years`, discounted at `rate`. Returns 1 when growth === 0. growth = +escalation
+// for OPEX, growth = -degradation for an energy denominator. Mirrors utils.js.
+function levelizedGrowthMultiplier(growth, rate, years) {
+    if (!(years > 0)) return 0;
+    const crf = capitalRecoveryFactor(rate, years);
+    const ratio = (1 + growth) / (1 + rate);
+    let pv;
+    if (Math.abs(ratio - 1) < 1e-12) {
+        pv = years / (1 + rate);
+    } else {
+        pv = (1 / (1 + growth)) * ratio * (1 - Math.pow(ratio, years)) / (1 - ratio);
+    }
+    return pv * crf;
+}
+
 function getLocalCapex(localCapexByLocation, locationId) {
     if (!localCapexByLocation) return null;
     return localCapexByLocation[String(locationId)] || localCapexByLocation[locationId] || null;
@@ -37,15 +53,19 @@ function computeLcoe(row, params, multipliers, localCapex, localWacc) {
     const solarKw = row.solar_gw * 1000;
     const batteryKwh = row.batt_gwh * 1000;
 
-    const solarCapexTotal = solarKw * solarCapex;
+    const ilr = Number.isFinite(params.ilr) && params.ilr > 0 ? params.ilr : 1;
+    const solarCapexTotal = solarKw * solarCapex / ilr;
     const batteryCapexTotal = batteryKwh * batteryCapex;
 
     const solarCrf = capitalRecoveryFactor(wacc, params.solarLife);
     const batteryCrf = capitalRecoveryFactor(wacc, params.batteryLife);
-    const annualSolarCost = solarCapexTotal * solarCrf + solarCapexTotal * params.solarOpexPct;
-    const annualBatteryCost = batteryCapexTotal * batteryCrf + batteryCapexTotal * params.batteryOpexPct;
+    const solarOpexEscalMult = levelizedGrowthMultiplier(params.solarOpexEscalationPct || 0, wacc, params.solarLife);
+    const batteryOpexEscalMult = levelizedGrowthMultiplier(params.batteryOpexEscalationPct || 0, wacc, params.batteryLife);
+    const annualSolarCost = solarCapexTotal * solarCrf + solarCapexTotal * params.solarOpexPct * solarOpexEscalMult;
+    const annualBatteryCost = batteryCapexTotal * batteryCrf + batteryCapexTotal * params.batteryOpexPct * batteryOpexEscalMult;
 
-    const annualMwh = row.annual_cf * 8760;
+    const energyDegMult = levelizedGrowthMultiplier(-(params.solarDegradationPct || 0), wacc, params.solarLife);
+    const annualMwh = row.annual_cf * 8760 * energyDegMult;
     if (!Number.isFinite(annualMwh) || annualMwh <= 0) {
         return Infinity;
     }

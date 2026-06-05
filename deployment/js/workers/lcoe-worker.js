@@ -19,6 +19,22 @@ function capitalRecoveryFactor(rate, years) {
     return denominator === 0 ? 0 : (rate * pow) / denominator;
 }
 
+// Level-equivalent annual multiplier for a stream growing at `growth`/yr over
+// `years`, discounted at `rate`. Returns 1 when growth === 0. growth = +escalation
+// for OPEX, growth = -degradation for an energy denominator. Mirrors utils.js.
+function levelizedGrowthMultiplier(growth, rate, years) {
+    if (!(years > 0)) return 0;
+    const crf = capitalRecoveryFactor(rate, years);
+    const ratio = (1 + growth) / (1 + rate);
+    let pv;
+    if (Math.abs(ratio - 1) < 1e-12) {
+        pv = years / (1 + rate);
+    } else {
+        pv = (1 / (1 + growth)) * ratio * (1 - Math.pow(ratio, years)) / (1 - ratio);
+    }
+    return pv * crf;
+}
+
 function getLocalCapex(localCapexByLocation, locationId) {
     if (!localCapexByLocation) return null;
     return localCapexByLocation[String(locationId)] || localCapexByLocation[locationId] || null;
@@ -86,6 +102,11 @@ function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCape
     const solarCrf = capitalRecoveryFactor(resolvedWacc, params.solarLife);
     const batteryCrf = capitalRecoveryFactor(resolvedWacc, params.batteryLife);
 
+    // Escalating OPEX (level-equivalent) and PV degradation (applied to the energy denominator).
+    const solarOpexEscalMult = levelizedGrowthMultiplier(params.solarOpexEscalationPct || 0, resolvedWacc, params.solarLife);
+    const batteryOpexEscalMult = levelizedGrowthMultiplier(params.batteryOpexEscalationPct || 0, resolvedWacc, params.batteryLife);
+    const energyDegradationMult = levelizedGrowthMultiplier(-(params.solarDegradationPct || 0), resolvedWacc, params.solarLife);
+
     const includeDieselBackup = Boolean(params.includeDieselBackup);
     let dieselPricing = null;
     let dieselFuelCostPerMwh = 0;
@@ -115,6 +136,9 @@ function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCape
         batteryCrf,
         solarOpexPct: params.solarOpexPct,
         batteryOpexPct: params.batteryOpexPct,
+        solarOpexEscalMult,
+        batteryOpexEscalMult,
+        energyDegradationMult,
         dieselPricing,
         dieselFuelCostPerMwh,
         dieselCapexAnnual,
@@ -134,13 +158,15 @@ function computeLcoeMetrics(row, pre) {
     const batteryCapex = pre.batteryCapexBase * batteryKwh;
     const solarAnnual = solarCapex * pre.solarCrf;
     const batteryAnnual = batteryCapex * pre.batteryCrf;
-    const solarOpex = solarCapex * pre.solarOpexPct;
-    const batteryOpex = batteryCapex * pre.batteryOpexPct;
+    const solarOpex = solarCapex * pre.solarOpexPct * pre.solarOpexEscalMult;
+    const batteryOpex = batteryCapex * pre.batteryOpexPct * pre.batteryOpexEscalMult;
 
     let annualCost = solarAnnual + batteryAnnual + solarOpex + batteryOpex;
     let annualEnergyMwh = Number.isFinite(row._annualEnergyMwh)
         ? row._annualEnergyMwh
         : solarShareCf * 8760 * BASE_LOAD_MW;
+    // PV degradation reduces the renewable energy denominator (diesel-firmed case below overrides).
+    annualEnergyMwh *= pre.energyDegradationMult;
 
     let dieselPriceUsdPerLiter = null;
     let dieselSourceYear = null;

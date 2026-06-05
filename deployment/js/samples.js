@@ -441,14 +441,38 @@ function renderFrame(season, frameIndex) {
         const offset = Number.isFinite(loc._utcOffset) ? loc._utcOffset : Math.round(loc.longitude / 15);
         const localIndex = frameIndex + offset;
 
-        // Handle out of bounds
-        // If local time is outside our data range, we assume 0 (or could wrap if we had circular data)
+        // Handle out of bounds / missing data
+        // If local time is outside our data range (e.g. the timezone-shifted edges of the
+        // sample week) or the value is missing, there is NO data for this point. Mark it as
+        // NA rather than pretending the load is 100% met by backup.
         let solarGen = 0;
         let battFlow = 0;
+        let hasData = false;
 
         if (localIndex >= 0 && localIndex < solarGenArray.length) {
-            solarGen = solarGenArray[localIndex] || 0;
-            battFlow = battFlowArray[localIndex] || 0;
+            const solarVal = solarGenArray[localIndex];
+            const battVal = battFlowArray[localIndex];
+            // A real zero (e.g. night-time solar) still counts as data; only null/undefined/NaN is "no data".
+            if (solarVal !== null && solarVal !== undefined && Number.isFinite(Number(solarVal))) {
+                hasData = true;
+                solarGen = Number(solarVal) || 0;
+                battFlow = (battVal !== null && battVal !== undefined && Number.isFinite(Number(battVal)))
+                    ? Number(battVal) : 0;
+            }
+        }
+
+        // No data for this location at this hour -> render as NA (4th category), not backup.
+        if (!hasData) {
+            return {
+                location_id: loc.location_id,
+                latitude: loc.latitude || 0,
+                longitude: loc.longitude || 0,
+                color: 'url(#na-hatch)',
+                isNA: true,
+                solarShare: null,
+                batteryShare: null,
+                otherShare: null
+            };
         }
 
         // Derive charge/discharge from net flow

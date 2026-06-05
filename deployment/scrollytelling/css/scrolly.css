@@ -1,4 +1,4 @@
-/* Scrollytelling Styles for Solar Atlas */
+/* Scrollytelling Styles for Solar + Battery Atlas */
 
 /* Design tokens — dark Ember palette (kept in sync with ../css/style.css) */
 :root {
@@ -618,9 +618,41 @@ html {
     will-change: opacity;
 }
 
-/* Voronoi layer smooth transitions */
+/* The overlay-driven black hold is the single source of truth for map reveals.
+   A per-layer opacity transition here would fight that reveal (the map would
+   fade independently after the overlay lifts), so keep the layer opaque/stable. */
 .leaflet-zoom-animated {
-    transition: opacity 0.4s ease;
+    transition: none;
+}
+
+/* ========== Subtle in-map loader (shown only during an unavoidable wait) ========== */
+.map-loader {
+    position: absolute;
+    inset: 0;
+    z-index: 60; /* above the transition overlay (z-index: 50) */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+}
+
+.map-loader.visible {
+    opacity: 1;
+}
+
+.map-loader-spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.18);
+    border-top-color: rgba(255, 255, 255, 0.7);
+    animation: map-loader-spin 0.9s linear infinite;
+}
+
+@keyframes map-loader-spin {
+    to { transform: rotate(360deg); }
 }
 
 /* ========== Chart Container ========== */

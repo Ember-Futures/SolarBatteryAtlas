@@ -19,10 +19,11 @@ import {
 import { initSampleDays, loadSampleWeekData, cleanupSampleDays } from './samples.js';
 import {
     capitalizeWord, formatNumber, formatCurrency, coordKey, roundedKey,
-    haversineKm, updateToggleUI, capitalRecoveryFactor as crf
+    haversineKm, updateToggleUI, capitalRecoveryFactor as crf, levelizedGrowthMultiplier
 } from './utils.js';
 import { ALL_FUELS, FUEL_COLORS, TX_WACC, TX_LIFE, BASE_LOAD_MW, DIESEL_THERMAL_KWH_PER_LITER, DIESEL_PRICE_FLOOR_USD_PER_LITER, LCOE_NO_DATA_COLOR, VIEW_MODE_EXPLANATIONS, CF_COLOR_SCALE, POTENTIAL_MULTIPLE_BUCKETS, FEATURE_WORKER_LCOE } from './constants.js';
 import { createSharedPopup, buildPlantTooltip } from './tooltip.js';
+import { initTour } from './tour.js';
 
 const d3 = window.d3;
 
@@ -38,6 +39,7 @@ let populationData = [];
 let populationCoordIndex = new Map();
 let summaryByConfig = new Map();
 let summaryStatsByConfig = new Map();
+let minBattBySolar = new Map();
 let potentialData = [];
 let potentialDataLoaded = false;
 let potentialLevel = 'level1';
@@ -404,6 +406,9 @@ let lcoeParams = {
     batteryCapex: 120,     // $/kWh
     solarOpexPct: 0.015,   // 1.5% of capex annually
     batteryOpexPct: 0.02,  // 2% of capex annually (as requested)
+    solarDegradationPct: 0.005,      // 0.5%/yr PV energy degradation
+    solarOpexEscalationPct: 0.02,    // 2%/yr O&M escalation
+    batteryOpexEscalationPct: 0.02,  // 2%/yr O&M escalation
     solarLife: 30,
     batteryLife: 20,
     wacc: 0.07,
@@ -513,6 +518,9 @@ const solarCapexInput = document.getElementById('solar-capex');
 const batteryCapexInput = document.getElementById('battery-capex');
 const solarOpexInput = document.getElementById('solar-opex');
 const batteryOpexInput = document.getElementById('battery-opex');
+const solarDegradationInput = document.getElementById('solar-degradation');
+const solarOpexEscalationInput = document.getElementById('solar-opex-escalation');
+const batteryOpexEscalationInput = document.getElementById('battery-opex-escalation');
 const solarLifeInput = document.getElementById('solar-life');
 const batteryLifeInput = document.getElementById('battery-life');
 const waccInput = document.getElementById('wacc');
@@ -583,6 +591,9 @@ const popSolarCapexInput = document.getElementById('pop-solar-capex');
 const popBatteryCapexInput = document.getElementById('pop-battery-capex');
 const popSolarOpexInput = document.getElementById('pop-solar-opex');
 const popBatteryOpexInput = document.getElementById('pop-battery-opex');
+const popSolarDegradationInput = document.getElementById('pop-solar-degradation');
+const popSolarOpexEscalationInput = document.getElementById('pop-solar-opex-escalation');
+const popBatteryOpexEscalationInput = document.getElementById('pop-battery-opex-escalation');
 const popSolarLifeInput = document.getElementById('pop-solar-life');
 const popBatteryLifeInput = document.getElementById('pop-battery-life');
 const popWaccInput = document.getElementById('pop-wacc');
@@ -760,6 +771,7 @@ function getConfigKey(solarGw, battGwh) {
 function enrichSummaryRows(data) {
     summaryByConfig = new Map();
     summaryStatsByConfig = new Map();
+    minBattBySolar = new Map();
 
     data.forEach(row => {
         if (!Number.isFinite(row.latitude) || !Number.isFinite(row.longitude)) return;
@@ -779,7 +791,44 @@ function enrichSummaryRows(data) {
         if (!Number.isFinite(row._annualEnergyMwh)) {
             row._annualEnergyMwh = row.annual_cf * 8760 * BASE_LOAD_MW;
         }
+
+        // Track the smallest battery size that actually has data for each solar
+        // capacity. Below this threshold no config was simulated (too little
+        // storage to firm baseload), so the map would render empty.
+        if (Number.isFinite(row.solar_gw) && Number.isFinite(row.batt_gwh)) {
+            const prevMin = minBattBySolar.get(row.solar_gw);
+            if (prevMin === undefined || row.batt_gwh < prevMin) {
+                minBattBySolar.set(row.solar_gw, row.batt_gwh);
+            }
+        }
     });
+}
+
+// Smallest battery value (MWh per MW baseload) that has simulated data for the
+// given solar capacity. Falls back to the slider minimum when unknown.
+function getMinBattForSolar(solarGw) {
+    const min = minBattBySolar.get(solarGw);
+    return Number.isFinite(min) ? min : 0;
+}
+
+// Constrain the battery sliders so the user cannot select a value below the
+// smallest simulated config for the current solar capacity (which would yield
+// an empty map). Returns the (possibly raised) battery value.
+function applyBattConstraint(solarGw) {
+    const minBatt = getMinBattForSolar(solarGw);
+    const popBattSlider = document.getElementById('pop-batt-slider');
+    const popBattVal = document.getElementById('pop-batt-val');
+    [battSlider, popBattSlider].forEach(slider => {
+        if (slider) slider.min = minBatt;
+    });
+    if (currentBatt < minBatt) {
+        currentBatt = minBatt;
+        if (battVal) battVal.textContent = minBatt;
+        if (battSlider) battSlider.value = minBatt;
+        if (popBattSlider) popBattSlider.value = minBatt;
+        if (popBattVal) popBattVal.textContent = minBatt;
+    }
+    return currentBatt;
 }
 
 function buildConfigBucket(key) {
@@ -939,13 +988,15 @@ function computeLcoeMetrics(row, params) {
     const wacc = Number.isFinite(row?._wacc) ? row._wacc : params.wacc;
     const solarAnnual = solarCapex * capitalRecoveryFactor(wacc, params.solarLife);
     const batteryAnnual = batteryCapex * capitalRecoveryFactor(wacc, params.batteryLife);
-    const solarOpex = solarCapex * params.solarOpexPct;
-    const batteryOpex = batteryCapex * params.batteryOpexPct;
+    const solarOpex = solarCapex * params.solarOpexPct * levelizedGrowthMultiplier(params.solarOpexEscalationPct || 0, wacc, params.solarLife);
+    const batteryOpex = batteryCapex * params.batteryOpexPct * levelizedGrowthMultiplier(params.batteryOpexEscalationPct || 0, wacc, params.batteryLife);
 
     let annualCost = solarAnnual + batteryAnnual + solarOpex + batteryOpex;
     let annualEnergyMWh = Number.isFinite(row._annualEnergyMwh)
         ? row._annualEnergyMwh
         : solarShareCf * 8760 * BASE_LOAD_MW;
+    // PV degradation reduces the renewable energy denominator (diesel-firmed case below overrides).
+    annualEnergyMWh *= levelizedGrowthMultiplier(-(params.solarDegradationPct || 0), wacc, params.solarLife);
 
     let dieselPriceUsdPerLiter = null;
     let dieselSourceYear = null;
@@ -1052,6 +1103,10 @@ function precomputeLcoePerLocation(sampleRow, params) {
     const batteryCrf = capitalRecoveryFactor(resolvedWacc, params.batteryLife);
     const solarOpexPct = params.solarOpexPct;
     const batteryOpexPct = params.batteryOpexPct;
+    // Escalating OPEX (level-equivalent) and PV degradation (applied to the energy denominator).
+    const solarOpexEscalMult = levelizedGrowthMultiplier(params.solarOpexEscalationPct || 0, resolvedWacc, params.solarLife);
+    const batteryOpexEscalMult = levelizedGrowthMultiplier(params.batteryOpexEscalationPct || 0, resolvedWacc, params.batteryLife);
+    const energyDegradationMult = levelizedGrowthMultiplier(-(params.solarDegradationPct || 0), resolvedWacc, params.solarLife);
 
     const includeDieselBackup = Boolean(params.includeDieselBackup);
     let dieselPricing = null;
@@ -1085,6 +1140,9 @@ function precomputeLcoePerLocation(sampleRow, params) {
         batteryCrf,
         solarOpexPct,
         batteryOpexPct,
+        solarOpexEscalMult,
+        batteryOpexEscalMult,
+        energyDegradationMult,
         dieselPricing,
         dieselFuelCostPerMwh,
         dieselCapexAnnual,
@@ -1104,13 +1162,15 @@ function computeLcoeMetricsFast(row, pre) {
     const batteryCapex = pre.baseBatteryCapex * batteryKwh;
     const solarAnnual = solarCapex * pre.solarCrf;
     const batteryAnnual = batteryCapex * pre.batteryCrf;
-    const solarOpex = solarCapex * pre.solarOpexPct;
-    const batteryOpex = batteryCapex * pre.batteryOpexPct;
+    const solarOpex = solarCapex * pre.solarOpexPct * pre.solarOpexEscalMult;
+    const batteryOpex = batteryCapex * pre.batteryOpexPct * pre.batteryOpexEscalMult;
 
     let annualCost = solarAnnual + batteryAnnual + solarOpex + batteryOpex;
     let annualEnergyMWh = Number.isFinite(row._annualEnergyMwh)
         ? row._annualEnergyMwh
         : solarShareCf * 8760 * BASE_LOAD_MW;
+    // PV degradation reduces the renewable energy denominator (diesel-firmed case below overrides).
+    annualEnergyMWh *= pre.energyDegradationMult;
 
     let dieselPriceUsdPerLiter = null;
     let dieselSourceYear = null;
@@ -1326,6 +1386,9 @@ function buildWorkerCacheKey(kind, targetValue, params) {
             batteryCapex: params.batteryCapex,
             solarOpexPct: params.solarOpexPct,
             batteryOpexPct: params.batteryOpexPct,
+            solarDegradationPct: params.solarDegradationPct,
+            solarOpexEscalationPct: params.solarOpexEscalationPct,
+            batteryOpexEscalationPct: params.batteryOpexEscalationPct,
             solarLife: params.solarLife,
             batteryLife: params.batteryLife,
             wacc: params.wacc,
@@ -1810,6 +1873,12 @@ function syncLcoeControlValues() {
     setInputValue(popSolarOpexInput, (lcoeParams.solarOpexPct || 0) * 100);
     setInputValue(batteryOpexInput, (lcoeParams.batteryOpexPct || 0) * 100);
     setInputValue(popBatteryOpexInput, (lcoeParams.batteryOpexPct || 0) * 100);
+    setInputValue(solarDegradationInput, (lcoeParams.solarDegradationPct || 0) * 100);
+    setInputValue(popSolarDegradationInput, (lcoeParams.solarDegradationPct || 0) * 100);
+    setInputValue(solarOpexEscalationInput, (lcoeParams.solarOpexEscalationPct || 0) * 100);
+    setInputValue(popSolarOpexEscalationInput, (lcoeParams.solarOpexEscalationPct || 0) * 100);
+    setInputValue(batteryOpexEscalationInput, (lcoeParams.batteryOpexEscalationPct || 0) * 100);
+    setInputValue(popBatteryOpexEscalationInput, (lcoeParams.batteryOpexEscalationPct || 0) * 100);
     setInputValue(solarLifeInput, lcoeParams.solarLife);
     setInputValue(popSolarLifeInput, lcoeParams.solarLife);
     setInputValue(batteryLifeInput, lcoeParams.batteryLife);
@@ -2756,7 +2825,9 @@ function queueLcoeUpdate() {
     }, 150);
 }
 
-function getPotentialMetricFromRow(row, potentialState) {
+// Raw supply/demand components for a potential row (TWh/yr), respecting level + latBounds.
+// Returns null when the row is out of bounds or has no finite total.
+function getPotentialRowComponents(row, potentialState) {
     if (!row || !potentialState) return null;
     const level = potentialState.level || 'level1';
     const totalKey = level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
@@ -2769,14 +2840,20 @@ function getPotentialMetricFromRow(row, potentialState) {
         return null;
     }
     if (!Number.isFinite(total)) return null;
+    const demandRow = potentialState.demandMap ? potentialState.demandMap.get(row.location_id) : null;
+    const demandKwh = demandRow ? Number(demandRow.annual_demand_kwh || 0) : 0;
+    const demandTwh = demandKwh > 0 ? demandKwh / 1e9 : 0;
+    return { total, demandTwh };
+}
+
+function getPotentialMetricFromRow(row, potentialState) {
+    const comp = getPotentialRowComponents(row, potentialState);
+    if (!comp) return null;
     if (potentialState.displayMode === 'multiple') {
-        const demandRow = potentialState.demandMap ? potentialState.demandMap.get(row.location_id) : null;
-        const demandKwh = demandRow ? Number(demandRow.annual_demand_kwh || 0) : 0;
-        const demandTwh = demandKwh > 0 ? demandKwh / 1e9 : 0;
-        if (demandTwh <= 0) return null;
-        return total / demandTwh;
+        if (comp.demandTwh <= 0) return null;
+        return comp.total / comp.demandTwh;
     }
-    return total;
+    return comp.total;
 }
 
 function buildPopulationMetrics(enrichedPop, overlayMode, cfData, lcoeData, potentialState = null) {
@@ -3128,9 +3205,16 @@ function buildSupplyMetricRows(overlayMode, cfData, lcoeData, potentialState = n
     }
     if (overlayMode === 'potential') {
         const rows = potentialState?.data || [];
+        const isMultiple = potentialState?.displayMode === 'multiple';
         return rows.map(row => {
-            const metricVal = getPotentialMetricFromRow(row, potentialState);
-            if (!Number.isFinite(metricVal)) return null;
+            const comp = getPotentialRowComponents(row, potentialState);
+            if (!comp) return null;
+            // Keep zero-demand cells (metric NaN) so the latitude chart can still count their
+            // supply toward Σ TWh per band; finite-metric filters downstream drop them from the
+            // map and histogram, so those views are unchanged.
+            const metricVal = isMultiple
+                ? (comp.demandTwh > 0 ? comp.total / comp.demandTwh : NaN)
+                : comp.total;
             const area = Number(row.zone_area_km2);
             const availabilityWeight = Number.isFinite(area) && area > 0 ? area : 1;
             return {
@@ -3138,6 +3222,10 @@ function buildSupplyMetricRows(overlayMode, cfData, lcoeData, potentialState = n
                 latitude: row.latitude,
                 longitude: row.longitude,
                 metric: metricVal,
+                // Raw components (TWh/yr) so the latitude chart can sum supply per band
+                // and form a single supply÷demand ratio line in "× Demand" mode.
+                supplyTwh: comp.total,
+                demandTwh: comp.demandTwh,
                 availabilityWeight
             };
         }).filter(Boolean);
@@ -3204,29 +3292,23 @@ function buildHistogramWithAvailability(demandMetrics, supplyMetrics, overlayMod
     return { labels, demandShare, supplyShare, buckets };
 }
 
-function buildLatitudeSupplyHistogram(supplyRows, bucketCount = 100) {
-    const totalWeight = supplyRows.reduce((sum, m) => sum + (m.metric || 0), 0);
-    if (!totalWeight) return { labels: [], data: [] };
-
+// Sum raw supply (TWh/yr) and demand (TWh/yr) into latitude bands. Used by the
+// Demand & Supply by Latitude chart to plot absolute solar potential (Total mode)
+// or a single Σsupply ÷ Σdemand ratio line (× Demand mode).
+function buildLatitudeSupplyBands(supplyRows, bucketCount = 36) {
     const bucketSize = 180 / bucketCount;
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({
-        min: -90 + i * bucketSize,
-        max: -90 + (i + 1) * bucketSize,
-        weight: 0
+        mid: -90 + (i + 0.5) * bucketSize,
+        supplyTwh: 0,
+        demandTwh: 0
     }));
-
     supplyRows.forEach(m => {
         if (!Number.isFinite(m.latitude)) return;
         const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((m.latitude + 90) / bucketSize)));
-        buckets[idx].weight += m.metric || 0;
+        if (Number.isFinite(m.supplyTwh)) buckets[idx].supplyTwh += m.supplyTwh;
+        if (Number.isFinite(m.demandTwh)) buckets[idx].demandTwh += m.demandTwh;
     });
-
-    const labels = buckets.map(b => `${((b.min + b.max) / 2).toFixed(1)}°`);
-    const data = buckets.map(b => (b.weight / totalWeight) * 100);
-    return {
-        labels: labels.reverse(),
-        data: data.reverse()
-    };
+    return buckets;
 }
 
 function quantile(sorted, q) {
@@ -4100,14 +4182,32 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
     // Add 30% headroom past the histogram peak so the step doesn't sit on the right axis.
     const demandSuggestedMax = demandPeak > 0 ? demandPeak * 1.3 : 1;
 
-    // Supply line: median per latitude band (CF/LCOE/potential-multiple) or share-by-band (potential-total)
-    const supplyChartIsBinned = potentialIsTotal;
+    // Supply line. Potential modes aggregate per latitude band into a single line:
+    //   • Total    → Σ solar potential (TWh/yr) across all cells in the band.
+    //   • × Demand → Σ supply (TWh/yr) ÷ Σ electricity demand (TWh/yr) in the band.
+    // CF/LCOE keep a median-per-band line alongside the per-cell scatter.
     let supplyLineData;
     let supplyLineLabel;
-    if (supplyChartIsBinned) {
-        const supplyLatHistogram = buildLatitudeSupplyHistogram(supplyRows, DEMAND_BIN_COUNT);
-        supplyLineData = histogramToLineData(supplyLatHistogram);
-        supplyLineLabel = 'Supply share (%)';
+    let supplyAxisLabel;
+    let supplyTickCallback;
+    if (isPotential) {
+        const bands = buildLatitudeSupplyBands(supplyRows, DEMAND_BIN_COUNT);
+        if (potentialIsMultiple) {
+            supplyLineData = bands
+                .filter(b => b.demandTwh > 0)
+                .map(b => ({ x: b.supplyTwh / b.demandTwh, y: b.mid }))
+                .sort((a, b) => a.y - b.y);
+            supplyLineLabel = 'Supply ÷ demand (×)';
+            supplyAxisLabel = 'Solar potential ÷ demand (×)';
+            supplyTickCallback = (v) => `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}×`;
+        } else {
+            supplyLineData = bands
+                .map(b => ({ x: b.supplyTwh, y: b.mid }))
+                .sort((a, b) => a.y - b.y);
+            supplyLineLabel = 'Solar potential (TWh/yr)';
+            supplyAxisLabel = 'Solar potential (TWh/yr)';
+            supplyTickCallback = (v) => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+        }
     } else {
         const stats = computeLatBandStats(supplyScatterRows);
         supplyLineData = stats
@@ -4115,7 +4215,25 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
             .map(s => ({ x: s.p50, y: s.lat }))
             .sort((a, b) => a.y - b.y);
         supplyLineLabel = `Median ${scatterXAxisLabel}`;
+        supplyAxisLabel = scatterXAxisLabel;
+        supplyTickCallback = undefined;
     }
+
+    // Auto-fit the bottom (supply) axis to always show all data. With parsing:false +
+    // normalized:true, Chart.js can't auto-detect the x-max for the line-only dataset and
+    // falls back to max:1, clipping high supply values. Compute the peak across every series
+    // on xSupply (line + scatter) and force a suggestedMax with headroom, mirroring
+    // demandSuggestedMax on the top axis.
+    const supplyXValues = supplyLineData
+        .map(p => p.x)
+        .filter(Number.isFinite);
+    if (!isPotential) {
+        metricScatterData.forEach(p => {
+            if (Number.isFinite(p.x)) supplyXValues.push(p.x);
+        });
+    }
+    const supplyPeak = supplyXValues.length ? Math.max(...supplyXValues) : 0;
+    const supplySuggestedMax = supplyPeak > 0 ? supplyPeak * 1.05 : undefined;
 
     const datasets = [
         {
@@ -4152,7 +4270,7 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
         }
     ];
 
-    if (!supplyChartIsBinned && metricScatterData.length) {
+    if (!isPotential && metricScatterData.length) {
         datasets.push({
             type: 'scatter',
             label: scatterXAxisLabel,
@@ -4172,7 +4290,10 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
         if (axisId === 'xDemand') return `${val.toFixed(2)}%`;
         if (isCf) return `${val.toFixed(1)}%`;
         if (isLcoe) return `$${val.toFixed(0)}`;
-        if (isPotential) return potentialIsMultiple ? `${val.toFixed(2)}×` : val.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        if (isPotential) {
+            if (potentialIsMultiple) return `${val.toFixed(2)}×`;
+            return `${val.toLocaleString('en-US', { maximumFractionDigits: 0 })} TWh`;
+        }
         return val.toFixed(2);
     };
 
@@ -4216,10 +4337,11 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
             },
             xSupply: {
                 position: 'bottom',
-                title: { display: true, text: scatterXAxisLabel, color: '#38bdf8' },
+                title: { display: true, text: supplyAxisLabel, color: '#38bdf8' },
                 grid: { color: 'rgba(255,255,255,0.04)', drawOnChartArea: false },
-                ticks: { color: '#38bdf8' },
-                min: 0
+                ticks: { color: '#38bdf8', callback: supplyTickCallback },
+                min: 0,
+                suggestedMax: supplySuggestedMax
             },
             y: {
                 min: -90,
@@ -4247,7 +4369,9 @@ async function renderPopulationCharts(metrics, { overlayMode, baseLayer, selecte
         const opts = populationCharts.latCombined.options;
         opts.scales.xDemand.title.text = latPopLabel;
         opts.scales.xDemand.suggestedMax = demandSuggestedMax;
-        opts.scales.xSupply.title.text = scatterXAxisLabel;
+        opts.scales.xSupply.title.text = supplyAxisLabel;
+        opts.scales.xSupply.ticks.callback = supplyTickCallback;
+        opts.scales.xSupply.suggestedMax = supplySuggestedMax;
         opts.plugins.tooltip.callbacks = tooltipCallbacks;
         populationCharts.latCombined.update();
     }
@@ -4469,27 +4593,27 @@ function handleSolarInput(value, source) {
     solarVal.textContent = val;
     if (solarSlider) solarSlider.value = val;
 
-    // Auto-adjust battery: if solar > 10 MW and battery < 18 MWh, set battery to 18 MWh
-    if (val > 10 && currentBatt < 18) {
-        currentBatt = 18;
-        battVal.textContent = 18;
-        if (battSlider) battSlider.value = 18;
-        // Also update population panel battery slider if it exists
-        const popBattSlider = document.getElementById('pop-batt-slider');
-        const popBattVal = document.getElementById('pop-batt-val');
-        if (popBattSlider) popBattSlider.value = 18;
-        if (popBattVal) popBattVal.textContent = 18;
-    }
+    // Constrain the battery slider to the smallest simulated config for this
+    // solar capacity, so the user cannot land on a config that has no data
+    // (which would render an empty map).
+    applyBattConstraint(val);
 
     debouncedUpdateModel();
 }
 
 function handleBattInput(value, source) {
-    const val = parseInt(value, 10);
+    let val = parseInt(value, 10);
     if (!Number.isFinite(val)) return;
+    // Never allow a battery below the smallest simulated config for the
+    // current solar capacity (would render an empty map).
+    val = Math.max(val, getMinBattForSolar(currentSolar));
     currentBatt = val;
     battVal.textContent = val;
     if (battSlider) battSlider.value = val;
+    const popBattSlider = document.getElementById('pop-batt-slider');
+    const popBattVal = document.getElementById('pop-batt-val');
+    if (popBattSlider) popBattSlider.value = val;
+    if (popBattVal) popBattVal.textContent = val;
     debouncedUpdateModel();
 }
 
@@ -4533,6 +4657,7 @@ async function init() {
             throw new Error("summaryData is not an array! It is: " + typeof summaryData);
         }
         enrichSummaryRows(summaryData);
+        applyBattConstraint(currentSolar);
 
         if (FEATURE_WORKER_LCOE) {
             const warm = () => ensureLcoeWorkerReady().catch(() => {});
@@ -4562,6 +4687,9 @@ async function init() {
 
         // Hide Loading
         loading.classList.add('hidden');
+
+        // Guided tour: wires the "Take a Tour" button and auto-prompts on first visit
+        initTour({ updateViewMode, getCurrentMode: () => currentViewMode });
 
     } catch (err) {
         console.error(err);
@@ -4814,6 +4942,9 @@ function initUIEvents() {
         lcoeParams.batteryCapex = parseFloat(popBatteryCapexInput?.value) || 120;
         lcoeParams.solarOpexPct = parseFloat(popSolarOpexInput?.value) / 100 || 0.015;
         lcoeParams.batteryOpexPct = parseFloat(popBatteryOpexInput?.value) / 100 || 0.02;
+        lcoeParams.solarDegradationPct = (parseFloat(popSolarDegradationInput?.value) || 0) / 100;
+        lcoeParams.solarOpexEscalationPct = (parseFloat(popSolarOpexEscalationInput?.value) || 0) / 100;
+        lcoeParams.batteryOpexEscalationPct = (parseFloat(popBatteryOpexEscalationInput?.value) || 0) / 100;
         lcoeParams.solarLife = parseInt(popSolarLifeInput?.value, 10) || 30;
         lcoeParams.batteryLife = parseInt(popBatteryLifeInput?.value, 10) || 20;
         lcoeParams.wacc = parseFloat(popWaccInput?.value) / 100 || 0.07;
@@ -4831,6 +4962,7 @@ function initUIEvents() {
     };
 
     [popSolarCapexInput, popBatteryCapexInput, popSolarOpexInput, popBatteryOpexInput,
+        popSolarDegradationInput, popSolarOpexEscalationInput, popBatteryOpexEscalationInput,
         popSolarLifeInput, popBatteryLifeInput, popWaccInput, popIlrInput,
         popDieselCapexInput, popDieselEfficiencyInput, popDieselLifeInput].forEach(input => {
             if (input) {
@@ -4988,7 +5120,7 @@ function initUIEvents() {
         });
     }
 
-    [solarCapexInput, batteryCapexInput, solarOpexInput, batteryOpexInput, solarLifeInput, batteryLifeInput, waccInput, ilrInput,
+    [solarCapexInput, batteryCapexInput, solarOpexInput, batteryOpexInput, solarDegradationInput, solarOpexEscalationInput, batteryOpexEscalationInput, solarLifeInput, batteryLifeInput, waccInput, ilrInput,
         dieselCapexInput, dieselEfficiencyInput, dieselLifeInput, dieselPriceInput].forEach(input => {
         if (input) input.addEventListener('change', updateLcoeParams);
     });
@@ -5159,6 +5291,8 @@ function updateUI() {
         updatePopulationView();
     } else if (currentViewMode === 'potential') {
         updatePotentialView();
+    } else if (currentViewMode === 'samples') {
+        updateSampleView();
     }
 }
 
@@ -5167,6 +5301,9 @@ function updateLcoeParams() {
     lcoeParams.batteryCapex = parseFloat(batteryCapexInput.value) || 0;
     lcoeParams.solarOpexPct = (parseFloat(solarOpexInput.value) || 0) / 100;
     lcoeParams.batteryOpexPct = (parseFloat(batteryOpexInput.value) || 0) / 100;
+    lcoeParams.solarDegradationPct = (parseFloat(solarDegradationInput?.value) || 0) / 100;
+    lcoeParams.solarOpexEscalationPct = (parseFloat(solarOpexEscalationInput?.value) || 0) / 100;
+    lcoeParams.batteryOpexEscalationPct = (parseFloat(batteryOpexEscalationInput?.value) || 0) / 100;
     lcoeParams.solarLife = parseInt(solarLifeInput.value, 10) || 1;
     lcoeParams.batteryLife = parseInt(batteryLifeInput.value, 10) || 1;
     lcoeParams.wacc = (parseFloat(waccInput.value) || 0) / 100;

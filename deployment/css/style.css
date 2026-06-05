@@ -1,5 +1,5 @@
 /* ============================================================
-   Solar Atlas — design tokens (dark Ember)
+   Solar + Battery Atlas — design tokens (dark Ember)
    Single source of truth. Tailwind mirrors these via its inline
    config in index.html so utility classes stay unchanged.
    ============================================================ */
@@ -257,7 +257,7 @@ body.split-maps #legend-stack {
 }
 
 /* ============================================================
-   Solar Atlas — shared component styles
+   Solar + Battery Atlas — shared component styles
    Used by markup in index.html and scrollytelling. Drives the
    "less finicky" input UX: bigger hit targets, consistent focus.
    ============================================================ */
@@ -545,4 +545,263 @@ label.check-row:hover {
    because tailwind's `primary` token is re-pointed to ember green */
 .view-tab {
     font-family: 'Poppins', sans-serif;
+}
+
+/* ============================================================
+   Guided Tour — "Take a Tour" callouts, glowing ring, chooser
+   ============================================================ */
+
+/* Glowing accent ring drawn around the highlighted element. No screen
+   dimming — the tool stays fully visible behind it. */
+.tour-ring {
+    position: fixed;
+    z-index: 10000;
+    border: 2px solid var(--ember);
+    border-radius: 14px;
+    pointer-events: none;
+    box-shadow: 0 0 0 4px rgba(19, 206, 116, 0.22),
+                0 0 18px 2px rgba(19, 206, 116, 0.45);
+    transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease;
+    animation: tour-ring-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes tour-ring-pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(19, 206, 116, 0.20), 0 0 16px 1px rgba(19, 206, 116, 0.40); }
+    50%      { box-shadow: 0 0 0 6px rgba(19, 206, 116, 0.30), 0 0 26px 4px rgba(19, 206, 116, 0.60); }
+}
+
+/* Callout box */
+.tour-callout {
+    position: fixed;
+    z-index: 10001;
+    width: 320px;
+    max-width: calc(100vw - 16px);
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+    padding: 18px 18px 14px;
+    color: var(--text);
+    font-family: 'Poppins', sans-serif;
+    transition: left 0.25s ease, top 0.25s ease;
+}
+
+.tour-callout__close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    color: var(--muted);
+    line-height: 0;
+    transition: color 0.2s ease;
+}
+.tour-callout__close:hover { color: var(--text); }
+.tour-callout__close .material-symbols-outlined { font-size: 20px; }
+
+.tour-callout__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0 24px 8px 0;
+    line-height: 1.3;
+}
+
+.tour-callout__body {
+    font-size: 13px;
+    line-height: 1.55;
+    color: #cdd3d1;
+}
+.tour-callout__body b { color: #fff; font-weight: 600; }
+
+.tour-callout__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 16px;
+}
+
+.tour-callout__counter {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+}
+
+.tour-callout__nav { display: flex; gap: 8px; }
+
+.tour-callout__btn {
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+.tour-callout__back {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--divider);
+}
+.tour-callout__back:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+.tour-callout__back:disabled { opacity: 0.35; cursor: default; }
+.tour-callout__next {
+    background: var(--ember);
+    color: #06140d;
+    border: 1px solid var(--ember);
+}
+.tour-callout__next:hover { background: var(--ember-hover); border-color: var(--ember-hover); }
+
+/* Arrow pointing toward the target */
+.tour-callout__arrow {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    transform: rotate(45deg);
+}
+.tour-callout__arrow--right { left: -7px; border-right: none; border-top: none; }
+.tour-callout__arrow--left  { right: -7px; border-left: none; border-bottom: none; }
+.tour-callout__arrow--bottom { top: -7px; border-bottom: none; border-right: none; }
+.tour-callout__arrow--top    { bottom: -7px; border-top: none; border-left: none; }
+
+/* Centered welcome / fallback callout */
+.tour-callout--centered {
+    width: 380px;
+    text-align: center;
+}
+.tour-callout--centered .tour-callout__title { margin-right: 0; }
+.tour-callout--centered .tour-callout__footer { justify-content: space-between; }
+
+/* ---- Tour chooser modal ---- */
+.tour-chooser {
+    position: fixed;
+    inset: 0;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    font-family: 'Poppins', sans-serif;
+}
+.tour-chooser.hidden { display: none; }
+
+.tour-chooser__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.tour-chooser__card {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.75);
+    padding: 32px 28px;
+    color: var(--text);
+}
+.tour-chooser__card--single { text-align: center; }
+
+.tour-chooser__close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    color: var(--muted);
+    line-height: 0;
+    transition: color 0.2s ease;
+}
+.tour-chooser__close:hover { color: var(--text); }
+
+.tour-chooser__icon {
+    color: var(--ember);
+    font-size: 34px;
+    margin-bottom: 10px;
+}
+
+.tour-chooser__heading {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0 0 8px;
+}
+.tour-chooser__sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 22px;
+    line-height: 1.55;
+}
+
+.tour-chooser__start {
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--ember);
+    color: #06140d;
+    border: 1px solid var(--ember);
+    border-radius: 9999px;
+    padding: 10px 28px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.tour-chooser__start:hover { background: var(--ember-hover); border-color: var(--ember-hover); }
+
+/* ---- First-visit nudge tooltip ---- */
+.tour-nudge {
+    position: fixed;
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 280px;
+    background: var(--card);
+    border: 1px solid rgba(19, 206, 116, 0.55);
+    border-radius: 12px;
+    box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.65), 0 0 0 4px rgba(19, 206, 116, 0.12);
+    padding: 10px 10px 10px 12px;
+    color: var(--text);
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    animation: tour-nudge-in 0.3s ease, tour-nudge-pulse 2s ease-in-out 0.3s infinite;
+}
+.tour-nudge:hover { border-color: var(--ember); }
+
+.tour-nudge__arrow {
+    position: absolute;
+    top: -6px;
+    width: 11px;
+    height: 11px;
+    background: var(--card);
+    border-left: 1px solid rgba(19, 206, 116, 0.55);
+    border-top: 1px solid rgba(19, 206, 116, 0.55);
+    transform: rotate(45deg);
+}
+.tour-nudge__icon {
+    color: var(--ember);
+    font-size: 20px;
+    flex-shrink: 0;
+}
+.tour-nudge__text {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.35;
+}
+.tour-nudge__close {
+    flex-shrink: 0;
+    color: var(--muted);
+    line-height: 0;
+    transition: color 0.2s ease;
+}
+.tour-nudge__close:hover { color: var(--text); }
+.tour-nudge__close .material-symbols-outlined { font-size: 18px; }
+
+@keyframes tour-nudge-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes tour-nudge-pulse {
+    0%, 100% { box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.65), 0 0 0 4px rgba(19, 206, 116, 0.10); }
+    50%      { box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.65), 0 0 0 7px rgba(19, 206, 116, 0.22); }
 }

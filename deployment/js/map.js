@@ -2470,6 +2470,26 @@ function renderSampleVoronoi(mapPoints, locations) {
             .attr("d", path);
     }
 
+    // Pattern for "no data" (NA) cells — a faint diagonal hatch, visually distinct from the
+    // solid grey "Backup" fill. Recreated on every full render (svg was cleared above) and
+    // referenced via fill="url(#na-hatch)" so it survives fast colour-only updates too.
+    const naDefs = svg.append("defs");
+    const naPattern = naDefs.append("pattern")
+        .attr("id", "na-hatch")
+        .attr("patternUnits", "userSpaceOnUse")
+        .attr("width", 6)
+        .attr("height", 6)
+        .attr("patternTransform", "rotate(45)");
+    naPattern.append("rect")
+        .attr("width", 6)
+        .attr("height", 6)
+        .attr("fill", "rgba(100,116,139,0.18)");
+    naPattern.append("line")
+        .attr("x1", 0).attr("y1", 0)
+        .attr("x2", 0).attr("y2", 6)
+        .attr("stroke", "rgba(148,163,184,0.7)")
+        .attr("stroke-width", 1.5);
+
     const g = svg.append("g")
         .attr("class", "sample-voronoi")
         .attr("clip-path", worldGeoJSON ? "url(#clip-land)" : null);
@@ -2495,15 +2515,23 @@ function renderSampleVoronoi(mapPoints, locations) {
         .on("mouseover", function (e, d) {
             applyHoverRim(this);
             if (!samplePopup) return;
-            const solar = Number.isFinite(d.solarShare) ? (d.solarShare * 100).toFixed(1) : '--';
-            const battery = Number.isFinite(d.batteryShare) ? (d.batteryShare * 100).toFixed(1) : '--';
-            const other = Number.isFinite(d.otherShare) ? (d.otherShare * 100).toFixed(1) : '--';
-            const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
-                <div class="font-semibold">Generation mix</div>
-                <div class="text-[11px] text-slate-300">Solar: ${solar}%</div>
-                <div class="text-[11px] text-slate-300">Battery: ${battery}%</div>
-                <div class="text-[11px] text-slate-300">Other: ${other}%</div>
-            </div>`;
+            let content;
+            if (d.isNA || !Number.isFinite(d.solarShare)) {
+                content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">No data</div>
+                    <div class="text-[11px] text-slate-300">No dispatch data for this point at this hour.</div>
+                </div>`;
+            } else {
+                const solar = Number.isFinite(d.solarShare) ? (d.solarShare * 100).toFixed(1) : '--';
+                const battery = Number.isFinite(d.batteryShare) ? (d.batteryShare * 100).toFixed(1) : '--';
+                const other = Number.isFinite(d.otherShare) ? (d.otherShare * 100).toFixed(1) : '--';
+                content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">Generation mix</div>
+                    <div class="text-[11px] text-slate-300">Solar: ${solar}%</div>
+                    <div class="text-[11px] text-slate-300">Battery: ${battery}%</div>
+                    <div class="text-[11px] text-slate-300">Other: ${other}%</div>
+                </div>`;
+            }
             samplePopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
         })
         .on("mouseout", function () {

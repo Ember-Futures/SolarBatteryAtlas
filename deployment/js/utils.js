@@ -51,6 +51,27 @@ export function capitalRecoveryFactor(rate, years) {
 }
 
 /**
+ * Level-equivalent annual multiplier for a cost/energy stream that grows at
+ * `growth` per year over `years`, discounted at `rate`. Equals
+ *   Σ_{t=1..N} (1+growth)^(t-1)/(1+rate)^t  ×  CRF(rate, N)
+ * and returns 1 when growth === 0, so passing 0 reproduces the prior flat-stream
+ * behaviour exactly. Use growth = +escalation for OPEX, growth = -degradation for
+ * an energy denominator.
+ */
+export function levelizedGrowthMultiplier(growth, rate, years) {
+    if (!(years > 0)) return 0;
+    const crf = capitalRecoveryFactor(rate, years);
+    const ratio = (1 + growth) / (1 + rate);
+    let pv;
+    if (Math.abs(ratio - 1) < 1e-12) {
+        pv = years / (1 + rate);
+    } else {
+        pv = (1 / (1 + growth)) * ratio * (1 - Math.pow(ratio, years)) / (1 - ratio);
+    }
+    return pv * crf;
+}
+
+/**
  * Generic toggle button UI updater
  * @param {NodeList} buttons - Button elements to update
  * @param {string} activeValue - The value to compare against

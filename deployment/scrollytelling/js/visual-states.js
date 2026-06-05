@@ -34,11 +34,7 @@ export const visualStates = {
             colorOverride: '#6b7280',
             stroke: '#ffffff',
             strokeWidth: 0.8,
-            fillOpacity: 0.45,
-            fadeIn: {
-                durationMs: 200,
-                totalMs: 3000
-            }
+            fillOpacity: 0.45
         },
         label: {
             title: '',
@@ -53,8 +49,8 @@ export const visualStates = {
         battery: 20,
         legend: 'capacity',
         label: {
-            title: 'Global Viability - Masdar Configuration',
-            subtitle: '6 MW solar, 20 MWh battery'
+            title: 'One configuration, every region',
+            subtitle: '6 MW DC solar, ~20 MWh battery, applied worldwide'
         }
     },
 
@@ -65,8 +61,8 @@ export const visualStates = {
         displayMode: 'multiple',
         legend: 'potential',
         label: {
-            title: 'Solar Potential vs Demand',
-            subtitle: 'Technical constraints • Multiple of today\u2019s demand'
+            title: 'Sunlight vs. demand',
+            subtitle: 'Annual solar potential as a multiple of local demand'
         }
     },
 
@@ -99,8 +95,8 @@ export const visualStates = {
         battery: 20,
         legend: 'weekly',
         label: {
-            title: 'Weekly Time Series',
-            subtitle: 'Solar generation + battery discharge'
+            title: 'One week, hour by hour',
+            subtitle: 'Yellow: solar used live. Purple: solar served back at night.'
         }
     },
 
@@ -151,7 +147,21 @@ export const visualStates = {
         }
     },
 
-    // Section 8: Cheap Where New Capacity is Planned
+    // Section 8: Cheap Back-up to 100% Uptime
+    'backup-cost': {
+        viewMode: 'backup',
+        sbTarget: 95, // default target solar + battery uptime (%); diesel fills the rest to 100%
+        legend: 'lcoe',
+        mapView: {
+            offsetRatioY: -0.12
+        },
+        label: {
+            title: 'Cost of 100% Uptime',
+            subtitle: 'Solar + battery + cheap diesel back-up for the final gap'
+        }
+    },
+
+    // Section 9: Cheap Where New Capacity is Planned
     'planned-capacity': {
         viewMode: 'lcoe',
         targetCf: 80,
@@ -161,19 +171,19 @@ export const visualStates = {
             offsetRatioY: -0.12
         },
         label: {
-            title: 'LCOE \u0026 Planned Capacity',
-            subtitle: 'New fossil projects in high-potential regions'
+            title: 'Where the next fossil plants are planned',
+            subtitle: 'Planned coal, gas & nuclear vs. the solar alternative'
         }
     },
 
-    // Section 9: LCOE Outlook
+    // Section 10: LCOE Outlook
     'lcoe-outlook': {
         viewMode: 'lcoe',
         targetCf: 80,
         legend: 'lcoe',
         label: {
-            title: 'LCOE Outlook',
-            subtitle: 'Costs decline to 2050'
+            title: 'The cost curve to 2050',
+            subtitle: 'Costs fall every year as the slider advances'
         }
     },
 

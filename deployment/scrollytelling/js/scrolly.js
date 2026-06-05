@@ -6,9 +6,9 @@
 import { getVisualState, hasAnimation, getAnimation, interpolate } from './visual-states.js';
 import { loadSummary, loadPopulationCsv, loadGemPlantsCsv, loadVoronoiGemCapacityCsv, loadElectricityDemandData, loadReliabilityCsv, loadSample, loadSampleColumnar, loadWeeklyFrameCache, loadPvoutPotentialCsv, loadVoronoiWaccCsv, loadVoronoiLocalCapexCsv } from './data.js';
 import { initMap, updateMap, updatePopulationSimple, updateLcoeMap, updateLcoePlantOverlay, updatePotentialMap, setAccessMetric, updateMapWithSampleFrame, clearAllMapLayers, map, initSampleFrameMap, updateSampleFrameColors, isSampleFrameInitialized, resetSampleFrameState, renderDualGlobes, hideDualGlobes } from './map.js';
-import { capitalRecoveryFactor as crf } from './utils.js';
+import { capitalRecoveryFactor as crf, levelizedGrowthMultiplier } from './utils.js';
 import { transitionController, initTransitions, TRANSITION_DURATION, interpolateColor } from './transitions.js';
-import { showPopulationCfChart, showFossilDisplacementChart, showWeeklySampleChart, showUptimeComparisonChart, showCumulativeCapacityChart, showNoAccessLcoeChart, showGlobalPopulationLcoeChart, hideChart } from './scrolly-charts.js';
+import { showPopulationCfChart, showFossilDisplacementChart, showWeeklySampleChart, showUptimeComparisonChart, showCumulativeCapacityChart, showNoAccessLcoeChart, showGlobalPopulationLcoeChart, showBackupCostChart, hideChart } from './scrolly-charts.js';
 import { POTENTIAL_MULTIPLE_BUCKETS, FEATURE_WORKER_LCOE, FEATURE_STAGED_PRELOAD, FEATURE_FRAMECACHE } from './constants.js';
 
 // ========== STATE ==========
@@ -70,6 +70,7 @@ let lcoeWorkerReadyPromise = null;
 const lcoeWorkerPending = new Map();
 const lcoeWorkerCache = new Map();
 const lcoeWorkerInFlight = new Set();
+const lcoeWorkerRerenderCtx = new Map(); // cacheKey -> { sectionId, renderVersion } to repaint on arrival
 let scrollSections = [];
 let scrollSectionIndex = new Map();
 let scrollOpacityRaf = null;
@@ -80,6 +81,25 @@ let pendingSectionVersion = 0;
 let currentPotentialLevel = null;
 let currentPotentialDisplayMode = 'multiple';
 let sectionRenderVersion = 0;
+
+// ----- Render-readiness gating (smooth, pop-in-free reveals) -----
+// The black overlay is held opaque until the incoming section's map is actually
+// drawn, then released with a short fade. This decouples the *reveal* from raw
+// scroll position so the user never sees an old or half-drawn map.
+let mapReady = true;                 // is the current/incoming section's map fully drawn?
+let incomingReadySection = 'hero';   // which section mapReady refers to
+let currentScrollOpacity = 0;        // last scroll-driven overlay opacity (0..1)
+let holdValue = 0;                   // readiness black-hold contribution (0..1)
+let holdTarget = 0;                  // where holdValue is heading (0 or 1)
+let holdRaf = null;                  // rAF handle for the hold ramp
+let holdLastTs = 0;
+let mapLoaderTimer = null;           // delays the loader so quick swaps never flash it
+let mapLoaderEl = null;
+let mapReadySafetyTimer = null;      // failsafe so we never hold black forever
+const HOLD_FADE_IN_MS = 220;         // fade to black when a section isn't ready yet
+const HOLD_FADE_OUT_MS = 360;        // fade from black once the section is drawn
+const MAP_LOADER_DELAY_MS = 300;     // show the subtle loader only past this wait
+const MAP_READY_SAFETY_MS = 8000;    // hard cap on the black hold
 
 const GAP_FADE_FRACTION = 0.2;
 const MIN_BLACK_HOLD_PX = 48;
@@ -120,10 +140,14 @@ function endPerf(marker, extra = {}) {
 
 // LCOE default parameters
 const lcoeParams = {
-    solarCapex: 600,
+    solarCapex: 720,                 // $/kW_AC (converted to DC via ILR; matches main dashboard)
     batteryCapex: 120,
+    ilr: 1.3,                        // Inverter Loading Ratio (DC:AC); divides AC capex to $/kW_DC
     solarOpexPct: 0.015,
     batteryOpexPct: 0.02,
+    solarDegradationPct: 0.005,      // 0.5%/yr PV energy degradation
+    solarOpexEscalationPct: 0.02,    // 2%/yr O&M escalation
+    batteryOpexEscalationPct: 0.02,  // 2%/yr O&M escalation
     solarLife: 30,
     batteryLife: 20,
     wacc: 0.07,
@@ -136,6 +160,10 @@ const lcoeParams = {
 const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
 const DEFAULT_LCOE_TARGET_CF = 80;
 let includeDieselBackup = false;
+// Back-up Cost step (section-8): firm target is always 100%. The user sets the share of
+// uptime covered by solar+battery via a slider; diesel back-up fills the gap to 100%.
+const BACKUP_DEFAULT_SB_TARGET = 95; // default "target solar + battery uptime" (%)
+let backupResultsCache = { key: null, results: null };
 const DEFAULT_MAP_VIEW = {
     center: [20, 0],
     zoom: 2,
@@ -263,8 +291,8 @@ const outlookPlayBtn = document.getElementById('lcoe-outlook-play');
 const outlookSlider = document.getElementById('lcoe-outlook-slider');
 const outlookYearLabel = document.getElementById('lcoe-outlook-year');
 const outlookTimeline = document.getElementById('lcoe-outlook-timeline');
-const outlookCapexButtons = document.querySelectorAll('#lcoe-outlook-capex-toggle button');
-const outlookWaccButtons = document.querySelectorAll('#lcoe-outlook-wacc-toggle button');
+// Single "Cost Basis" toggle drives both CAPEX and WACC together (global vs local).
+const outlookCostButtons = document.querySelectorAll('#lcoe-outlook-cost-toggle button');
 
 // Target CF Slider elements
 const targetCfContainer = document.getElementById('target-cf-container');
@@ -272,6 +300,11 @@ const inlineTargetCfContainer = document.getElementById('inline-target-cf-contai
 const targetCfSlider = document.getElementById('target-cf-slider');
 const targetCfDisplay = document.getElementById('target-cf-display');
 const dieselBackupToggle = document.getElementById('diesel-backup-toggle');
+
+// Inline uptime-slider sub-elements (shared across LCOE chart steps; repurposed for the
+// back-up step as "Target Solar + Battery Uptime").
+const targetCfLabel = document.getElementById('target-cf-label');
+const dieselBackupRow = document.getElementById('diesel-backup-row');
 
 // ========== INITIALIZATION ==========
 async function init() {
@@ -358,7 +391,21 @@ function getPreloadTaskRunner(taskId) {
         case 'weekly': return preloadWeeklyConfigs;
         case 'wacc': return ensureWaccData;
         case 'capex': return ensureLocalCapexData;
+        case 'lcoe': return warmLcoeCache;
         default: return null;
+    }
+}
+
+// Precompute (in the worker, during idle) the LCOE config the upcoming sections will
+// request, so arriving at an LCOE section is an instant cache hit rather than a wait.
+async function warmLcoeCache() {
+    if (!FEATURE_WORKER_LCOE) return;
+    const ready = await ensureScrollyLcoeWorkerReady();
+    if (!ready) return;
+    const targetCf = DEFAULT_LCOE_TARGET_CF / 100; // 0.8 covers cheap-populous / planned / outlook base
+    const cacheKey = buildScrollyWorkerCacheKey(targetCf, false);
+    if (!lcoeWorkerCache.has(cacheKey)) {
+        scheduleScrollyLcoeWorkerCompute(cacheKey, targetCf);
     }
 }
 
@@ -373,6 +420,7 @@ function buildPreloadTaskList(sectionId, immediate = []) {
         'cheap-populous': ['population', 'electricity', 'wacc'],
         'cheap-access': ['reliability', 'population'],
         'better-uptime': ['reliability', 'population'],
+        'backup-cost': ['wacc', 'capex', 'population'],
         'planned-capacity': ['fossil', 'population'],
         'lcoe-outlook': ['wacc', 'capex', 'population'],
         'path-forward': ['population']
@@ -390,8 +438,9 @@ function buildPreloadTaskList(sectionId, immediate = []) {
     immediate.forEach((taskId) => pushTask(taskId, 'immediate'));
     (planBySection[sectionKey] || []).forEach((taskId) => pushTask(taskId, 'idle'));
 
-    // Always keep low-priority warmup for downstream sections.
-    ['population', 'reliability', 'fossil', 'electricity', 'weekly', 'wacc', 'capex']
+    // Always keep low-priority warmup for downstream sections (incl. the worker LCOE
+    // cache, so the cost maps are ready before the user scrolls into them).
+    ['population', 'reliability', 'fossil', 'electricity', 'weekly', 'wacc', 'capex', 'lcoe']
         .forEach((taskId) => pushTask(taskId, 'idle'));
 
     return ordered;
@@ -403,6 +452,7 @@ function getImmediateTasksForSection(sectionId) {
         case 'battery-shadow': return ['weekly'];
         case 'cheap-populous': return ['population'];
         case 'cheap-access': return ['reliability', 'population'];
+        case 'backup-cost': return ['wacc', 'capex'];
         case 'planned-capacity': return ['fossil'];
         case 'lcoe-outlook': return ['wacc', 'capex'];
         default: return [];
@@ -780,16 +830,10 @@ function getLocalWacc(locationId) {
 }
 
 function updateOutlookToggleUI() {
-    outlookCapexButtons.forEach(btn => {
-        const isActive = btn.dataset.mode === capexMode;
-        btn.classList.toggle('bg-gray-600', isActive);
-        btn.classList.toggle('text-white', isActive);
-        btn.classList.toggle('shadow-sm', isActive);
-        btn.classList.toggle('text-gray-400', !isActive);
-        btn.classList.toggle('hover:text-white', !isActive);
-    });
-    outlookWaccButtons.forEach(btn => {
-        const isActive = btn.dataset.mode === waccMode;
+    // CAPEX and WACC always move together here, so the single toggle reflects their shared mode.
+    const costMode = capexMode;
+    outlookCostButtons.forEach(btn => {
+        const isActive = btn.dataset.mode === costMode;
         btn.classList.toggle('bg-gray-600', isActive);
         btn.classList.toggle('text-white', isActive);
         btn.classList.toggle('shadow-sm', isActive);
@@ -798,25 +842,17 @@ function updateOutlookToggleUI() {
     });
 }
 
-async function setCapexMode(mode) {
+// One toggle drives both CAPEX and WACC: "global" assumes global prices and cost of
+// capital (physical comparison); "local" uses on-the-ground prices and financing.
+async function setCostMode(mode) {
     const normalized = mode === 'local' ? 'local' : 'global';
-    if (capexMode === normalized) return;
+    if (capexMode === normalized && waccMode === normalized) return;
     capexMode = normalized;
-    updateOutlookToggleUI();
-    resetLocalCapexCache();
-    if (capexMode === 'local') {
-        await ensureLocalCapexData();
-    }
-    await refreshLcoeViews();
-}
-
-async function setWaccMode(mode) {
-    const normalized = mode === 'local' ? 'local' : 'global';
-    if (waccMode === normalized) return;
     waccMode = normalized;
     updateOutlookToggleUI();
-    if (waccMode === 'local') {
-        await ensureWaccData();
+    resetLocalCapexCache();
+    if (normalized === 'local') {
+        await Promise.all([ensureLocalCapexData(), ensureWaccData()]);
     }
     await refreshLcoeViews();
 }
@@ -1054,6 +1090,10 @@ function onSectionEnter(sectionId) {
     sectionRenderVersion += 1;
     const renderVersion = sectionRenderVersion;
 
+    // Hold the overlay black until this section's map is actually drawn (released
+    // in markIncomingReady once renderVisualState / the animation paints a frame).
+    beginSectionHold(sectionId);
+
     // Clear any data-link override when scrolling to a new section
     if (dataLinkOverride) {
         dataLinkOverride = null;
@@ -1211,6 +1251,11 @@ function setupInteractions() {
             lastLcoeColorInfo = colorInfo;
             updateLcoeMap(lcoeResults, { colorInfo });
             await showGlobalPopulationLcoeChart(populationData, lcoeResults);
+        } else if (currentSection === 'backup-cost') {
+            await ensurePopulationData();
+            const sbTarget = val / 100;
+            renderBackupMap(sbTarget);
+            await showBackupCostChart(getBackupResults(sbTarget), populationData, sbTarget);
         }
     }
 
@@ -1251,18 +1296,10 @@ function setupInteractions() {
         });
     }
 
-    if (outlookCapexButtons && outlookCapexButtons.length) {
-        outlookCapexButtons.forEach(btn => {
+    if (outlookCostButtons && outlookCostButtons.length) {
+        outlookCostButtons.forEach(btn => {
             btn.addEventListener('click', () => {
-                setCapexMode(btn.dataset.mode);
-            });
-        });
-    }
-
-    if (outlookWaccButtons && outlookWaccButtons.length) {
-        outlookWaccButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                setWaccMode(btn.dataset.mode);
+                setCostMode(btn.dataset.mode);
             });
         });
     }
@@ -1287,9 +1324,10 @@ function getSectionIndex(sectionId) {
         'cheap-populous': 4,
         'cheap-access': 5,
         'better-uptime': 6,
-        'planned-capacity': 7,
-        'lcoe-outlook': 8,
-        'path-forward': 9
+        'backup-cost': 7,
+        'planned-capacity': 8,
+        'lcoe-outlook': 9,
+        'path-forward': 10
     };
     return map[sectionId] ?? -1;
 }
@@ -1473,6 +1511,11 @@ async function applyVisualState(sectionId, renderVersion = sectionRenderVersion)
         }
     }
 
+    // Configure the shared inline uptime slider: on the back-up step it reads as
+    // "Target Solar + Battery Uptime" (diesel always fills the rest); elsewhere it is the
+    // standard "Target Uptime" with the diesel-back-up checkbox visible.
+    configureInlineSliderForSection(sectionId);
+
     // Ensure necessary data is loaded before rendering map
     if (sectionId === 'cheap-populous') {
         await ensurePopulationData();
@@ -1491,13 +1534,8 @@ async function applyVisualState(sectionId, renderVersion = sectionRenderVersion)
         ensurePotentialLatBounds(state.level || 'level1');
     }
 
-    if (shouldDelaySection(sectionId)) {
-        pendingSectionId = sectionId;
-        pendingSectionVersion = renderVersion;
-        return;
-    }
-    pendingSectionId = null;
-    pendingSectionVersion = 0;
+    // Render immediately and let the readiness black-hold cover the swap; the old
+    // scroll-position deferral (shouldDelaySection) is no longer needed.
     if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
 
     // Update label
@@ -1664,7 +1702,27 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
             }
         }
     }
-    // Section 7: Planned Capacity
+    // Section 8: Cheap diesel back-up to 100% uptime
+    else if (sectionId === 'backup-cost') {
+        await ensurePopulationData();
+        if (isStale()) return;
+
+        if (inlineTargetCfContainer) inlineTargetCfContainer.classList.remove('hidden');
+        const sbDefault = getVisualState('backup-cost')?.sbTarget ?? BACKUP_DEFAULT_SB_TARGET;
+        if (targetCfSlider) {
+            targetCfSlider.value = sbDefault;
+            if (targetCfDisplay) targetCfDisplay.textContent = sbDefault;
+        }
+
+        showChart = true;
+        const sbTarget = (targetCfSlider ? parseInt(targetCfSlider.value, 10) : sbDefault) / 100;
+        await showBackupCostChart(getBackupResults(sbTarget), populationData, sbTarget);
+        if (isStale()) {
+            hideChart();
+            return;
+        }
+    }
+    // Section 9: Planned Capacity
     else if (sectionId === 'planned-capacity') {
         await ensureFossilData();
         if (isStale()) return;
@@ -1766,6 +1824,9 @@ function updateLegend(legendType) {
         if (legendLcoeMin) legendLcoeMin.textContent = '$0';
         if (legendLcoeMid) legendLcoeMid.textContent = '$100';
         if (legendLcoeMax) legendLcoeMax.textContent = '$200';
+        // Reset the title in case the back-up step left it as "Back-up cost ($/MWh)".
+        const lcoeTitle = legendLcoe ? legendLcoe.querySelector('div') : null;
+        if (lcoeTitle) lcoeTitle.textContent = 'LCOE ($/MWh)';
     }
 }
 
@@ -1787,7 +1848,10 @@ function renderVisualState(state, sectionId = currentSection, renderVersion = se
 
     } else if (viewMode === 'lcoe') {
         const targetCf = (state.targetCf || DEFAULT_LCOE_TARGET_CF) / 100;
-        const lcoeResults = computeLcoeForAllLocations(targetCf);
+        const lcoeResults = getRenderLcoeResults(targetCf, {}, sectionId, renderVersion);
+        // Null means the worker is still computing: keep the overlay black (and show
+        // the loader) and let the worker's onmessage re-render once results land.
+        if (!lcoeResults) return;
         const colorInfo = buildLcoeColorInfo(lcoeResults);
         lastLcoeResults = lcoeResults;
         lastLcoeColorInfo = colorInfo;
@@ -1798,6 +1862,9 @@ function renderVisualState(state, sectionId = currentSection, renderVersion = se
         }
 
         updateLcoeMap(lcoeResults, options);
+
+    } else if (viewMode === 'backup') {
+        renderBackupMap(getBackupSbTarget());
 
     } else if (viewMode === 'population') {
         const { baseLayer, overlayMode, solar, battery, selectedFuels, selectedStatus } = state;
@@ -1875,6 +1942,124 @@ function renderVisualState(state, sectionId = currentSection, renderVersion = se
         const colorInfo = buildLcoeColorInfo(lcoeResults);
         renderDualGlobes(populationData, lcoeResults, { lcoeColorInfo: colorInfo });
     }
+
+    // The incoming section's map is now fully drawn — release the black hold so it
+    // fades in cleanly. (Animated/weekly sections mark readiness from their own
+    // draw loops; the LCOE-waiting case returns above without reaching here.)
+    markIncomingReady(sectionId, renderVersion);
+}
+
+// ========== BACK-UP COST STEP (section-8) ==========
+// The map always shows the FULL LCOE of a 100%-uptime system: solar+battery sized to a
+// user-chosen "target solar + battery uptime" (sbTarget), with a diesel genset filling the
+// remaining hours up to 100%. The slider drives sbTarget; the chart below shows how the
+// diesel back-up cost ($/MWh) is distributed across the world population (capex vs fuel).
+
+// Read the current target solar+battery uptime (fraction) from the inline slider.
+function getBackupSbTarget() {
+    const v = targetCfSlider ? parseInt(targetCfSlider.value, 10) : BACKUP_DEFAULT_SB_TARGET;
+    return (Number.isFinite(v) ? v : BACKUP_DEFAULT_SB_TARGET) / 100;
+}
+
+// Memoised per-location compute for the back-up step (keyed by sbTarget + cost outlook).
+function getBackupResults(sbTarget) {
+    const key = `${sbTarget}|${lcoeOutlookMultipliers.solar}|${lcoeOutlookMultipliers.battery}`;
+    if (backupResultsCache.key === key && backupResultsCache.results) {
+        return backupResultsCache.results;
+    }
+    const results = computeBackupLcoeForAllLocations(sbTarget);
+    backupResultsCache = { key, results };
+    return results;
+}
+
+// Per location: pick the cheapest solar+battery config reaching >= sbTarget uptime, then add a
+// diesel genset to cover the rest up to 100%. Returns the full firm LCOE plus the back-up
+// (diesel) cost split into capex (genset) and opex (fuel) per MWh of firm energy.
+// NOTE: this repeats the solar/battery + diesel cost formulas already in computeLcoe()
+// (see [[lcoe-formula-duplicated]]); keep the constants in sync. TODO: consolidate.
+function computeBackupLcoeForAllLocations(sbTarget) {
+    const results = [];
+    const { solarCapex, batteryCapex, solarOpexPct, batteryOpexPct, solarLife, batteryLife, wacc } = lcoeParams;
+    const globalSolarCapex = solarCapex * (lcoeOutlookMultipliers.solar || 1);
+    const globalBatteryCapex = batteryCapex * (lcoeOutlookMultipliers.battery || 1);
+    const HOURS = 8760;
+    const firmMwh = HOURS; // 1 MW firm load at 100% uptime
+
+    locationIndex.forEach((rows, locationId) => {
+        const localCapex = getLocalCapex(locationId);
+        const localWacc = getLocalWacc(locationId);
+        const effSolarCapex = localCapex?.solar ?? globalSolarCapex;
+        const effBatteryCapex = localCapex?.battery ?? globalBatteryCapex;
+        const effWacc = localWacc ?? wacc;
+
+        // 1. Choose cheapest solar+battery config reaching >= sbTarget (fallback: highest CF).
+        let chosen = null;
+        let minSbLcoe = Infinity;
+        let maxCfRow = null;
+        rows.forEach(row => {
+            if (row.solar_gw > 10) return;
+            if (!maxCfRow || row.annual_cf > maxCfRow.annual_cf) maxCfRow = row;
+            if (row.annual_cf >= sbTarget) {
+                const sbLcoe = computeLcoe(row, effSolarCapex, effBatteryCapex, effWacc, solarLife, batteryLife, solarOpexPct, batteryOpexPct);
+                if (sbLcoe < minSbLcoe) { minSbLcoe = sbLcoe; chosen = row; }
+            }
+        });
+        if (!chosen) chosen = maxCfRow;
+        if (!chosen) return;
+
+        // 2. Annualised solar + battery cost for the chosen config.
+        const ilr = Number.isFinite(lcoeParams.ilr) && lcoeParams.ilr > 0 ? lcoeParams.ilr : 1;
+        const solarCapexTotal = chosen.solar_gw * 1000 * effSolarCapex / ilr;
+        const batteryCapexTotal = chosen.batt_gwh * 1000 * effBatteryCapex;
+        const solarOpexEscalMult = levelizedGrowthMultiplier(lcoeParams.solarOpexEscalationPct || 0, effWacc, solarLife);
+        const batteryOpexEscalMult = levelizedGrowthMultiplier(lcoeParams.batteryOpexEscalationPct || 0, effWacc, batteryLife);
+        const sbAnnualCost = solarCapexTotal * crf(effWacc, solarLife) + solarCapexTotal * solarOpexPct * solarOpexEscalMult
+            + batteryCapexTotal * crf(effWacc, batteryLife) + batteryCapexTotal * batteryOpexPct * batteryOpexEscalMult;
+
+        // 3. Diesel back-up fills from the config's actual uptime to 100%.
+        const solarCf = Math.min(chosen.annual_cf, 1);
+        const dieselShareCf = Math.max(0, 1 - solarCf);
+        const dieselCapexAnnual = (1000 * lcoeParams.dieselCapex) * crf(effWacc, lcoeParams.dieselLife);
+        const dieselFuelPerMwh = (lcoeParams.dieselPriceUsdPerLiter * 1000) / (lcoeParams.dieselEfficiency * DIESEL_THERMAL_KWH_PER_LITER);
+        const dieselFuelAnnual = (dieselShareCf * HOURS) * dieselFuelPerMwh;
+
+        const backupCapexPerMwh = dieselCapexAnnual / firmMwh;
+        const backupOpexPerMwh = dieselFuelAnnual / firmMwh;
+        const fullLcoe = (sbAnnualCost + dieselCapexAnnual + dieselFuelAnnual) / firmMwh;
+
+        results.push({
+            ...chosen,
+            lcoe: fullLcoe,
+            meetsTarget: true,
+            solar_share_cf: solarCf,
+            diesel_share_cf: dieselShareCf,
+            backup_capex_per_mwh: backupCapexPerMwh,
+            backup_opex_per_mwh: backupOpexPerMwh,
+            backup_total_per_mwh: backupCapexPerMwh + backupOpexPerMwh
+        });
+    });
+    return results;
+}
+
+// Colour the map by the full firm (100%-uptime) LCOE for the current sbTarget.
+function renderBackupMap(sbTarget) {
+    const results = getBackupResults(sbTarget);
+    const colorInfo = buildLcoeColorInfo(results);
+    lastLcoeResults = results;
+    lastLcoeColorInfo = colorInfo;
+    updateLcoeMap(results, { colorInfo });
+    updateLegend('lcoe');
+    updateVisualLabel({
+        title: 'Cost of 100% Uptime',
+        subtitle: `Solar + battery to ${Math.round(sbTarget * 100)}% uptime, diesel back-up for the rest`
+    });
+}
+
+// Re-label the shared inline uptime slider depending on the active section.
+function configureInlineSliderForSection(sectionId) {
+    const isBackup = sectionId === 'backup-cost';
+    if (targetCfLabel) targetCfLabel.textContent = isBackup ? 'Target Solar + Battery Uptime' : 'Target Uptime';
+    if (dieselBackupRow) dieselBackupRow.classList.toggle('hidden', isBackup);
 }
 
 // ========== ANIMATIONS ==========
@@ -1948,6 +2133,7 @@ function runLoopingAnimation(sectionId, state, steps, totalDuration, renderVersi
         // Update map with current battery value AND current solar value from slider
         const cfData = getSummaryForConfig(currentSolarState, currentValue);
         updateMap(cfData, currentSolarState, currentValue, { ...(state.mapOptions || {}), preFiltered: true });
+        markIncomingReady(sectionId, renderVersion);
 
         // Move to next step (loop back to 0)
         stepIndex = (stepIndex + 1) % steps.length;
@@ -1989,6 +2175,7 @@ function runOneShotAnimation(sectionId, state, from, to, duration, easing, rende
         const solar = state.solar || 5;
         const cfData = getSummaryForConfig(solar, currentValue);
         updateMap(cfData, solar, currentValue, { ...(state.mapOptions || {}), preFiltered: true });
+        markIncomingReady(sectionId, renderVersion);
 
         if (progress < 1) {
             animationFrame = requestAnimationFrame(animate);
@@ -2181,14 +2368,107 @@ function updateScrollOpacity() {
     if (!metrics) return;
 
     lastScrollMetrics = metrics;
+    currentScrollOpacity = metrics.opacity;
+    applyOverlay();
+    maybeApplyPendingSection(metrics);
+}
 
-    const rounded = Math.round(metrics.opacity * 1000) / 1000;
+// ----- Overlay opacity: max of the scroll-driven fade and the readiness hold -----
+function applyOverlay() {
+    if (!transitionController.overlayA) return;
+    const eff = Math.max(currentScrollOpacity, holdValue);
+    const rounded = Math.round(eff * 1000) / 1000;
     if (lastOverlayOpacity !== rounded) {
         transitionController.overlayA.style.opacity = rounded.toString();
         lastOverlayOpacity = rounded;
     }
+    if (rounded < 0.5) hideMapLoader();
+}
 
-    maybeApplyPendingSection(metrics);
+// Ramp holdValue toward holdTarget (0 or 1) on its own rAF, independent of scroll,
+// so a reveal happens even when the user has stopped scrolling.
+function stepHold(ts) {
+    holdRaf = null;
+    const dt = holdLastTs ? Math.min(48, ts - holdLastTs) : 16;
+    holdLastTs = ts;
+    const goingUp = holdTarget > holdValue;
+    const dur = goingUp ? HOLD_FADE_IN_MS : HOLD_FADE_OUT_MS;
+    const delta = dt / dur;
+    holdValue = goingUp
+        ? Math.min(holdTarget, holdValue + delta)
+        : Math.max(holdTarget, holdValue - delta);
+    applyOverlay();
+    if (holdValue !== holdTarget) {
+        holdRaf = requestAnimationFrame(stepHold);
+    } else {
+        holdLastTs = 0;
+    }
+}
+
+function setHoldTarget(target) {
+    const clamped = target ? 1 : 0;
+    if (clamped === holdTarget && holdValue === holdTarget) return;
+    holdTarget = clamped;
+    if (!holdRaf) {
+        holdLastTs = 0;
+        holdRaf = requestAnimationFrame(stepHold);
+    }
+}
+
+// Begin holding the overlay black for a freshly-entered section.
+function beginSectionHold(sectionId) {
+    mapReady = false;
+    incomingReadySection = sectionId;
+    setHoldTarget(1);
+    armMapLoader();
+    if (mapReadySafetyTimer) clearTimeout(mapReadySafetyTimer);
+    mapReadySafetyTimer = setTimeout(() => {
+        mapReadySafetyTimer = null;
+        // Failsafe: never strand the user on a black screen.
+        mapReady = true;
+        hideMapLoader();
+        setHoldTarget(0);
+    }, MAP_READY_SAFETY_MS);
+}
+
+// Release the black hold once the incoming section's map is fully drawn.
+function markIncomingReady(sectionId, renderVersion) {
+    if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
+    if (mapReady && incomingReadySection === sectionId) return;
+    mapReady = true;
+    incomingReadySection = sectionId;
+    if (mapReadySafetyTimer) {
+        clearTimeout(mapReadySafetyTimer);
+        mapReadySafetyTimer = null;
+    }
+    hideMapLoader();
+    setHoldTarget(0);
+}
+
+function getMapLoaderEl() {
+    if (!mapLoaderEl) mapLoaderEl = document.getElementById('map-loader');
+    return mapLoaderEl;
+}
+
+// Arm the loader to appear only if the black hold outlasts MAP_LOADER_DELAY_MS.
+function armMapLoader() {
+    if (mapLoaderTimer) clearTimeout(mapLoaderTimer);
+    mapLoaderTimer = setTimeout(() => {
+        mapLoaderTimer = null;
+        if (!mapReady && holdValue > 0.5) {
+            const el = getMapLoaderEl();
+            if (el) el.classList.add('visible');
+        }
+    }, MAP_LOADER_DELAY_MS);
+}
+
+function hideMapLoader() {
+    if (mapLoaderTimer) {
+        clearTimeout(mapLoaderTimer);
+        mapLoaderTimer = null;
+    }
+    const el = getMapLoaderEl();
+    if (el) el.classList.remove('visible');
 }
 
 // ========== LCOE CALCULATIONS ==========
@@ -2269,16 +2549,21 @@ function serializeScrollyLocalCapexMap() {
     return out;
 }
 
-function buildScrollyWorkerCacheKey(targetCf) {
+function buildScrollyWorkerCacheKey(targetCf, useDiesel = false) {
     return JSON.stringify({
         targetCf,
+        useDiesel,
         mode: { capexMode, waccMode, year: lcoeOutlookYear },
         multipliers: lcoeOutlookMultipliers,
         params: {
             solarCapex: lcoeParams.solarCapex,
             batteryCapex: lcoeParams.batteryCapex,
+            ilr: lcoeParams.ilr,
             solarOpexPct: lcoeParams.solarOpexPct,
             batteryOpexPct: lcoeParams.batteryOpexPct,
+            solarDegradationPct: lcoeParams.solarDegradationPct,
+            solarOpexEscalationPct: lcoeParams.solarOpexEscalationPct,
+            batteryOpexEscalationPct: lcoeParams.batteryOpexEscalationPct,
             solarLife: lcoeParams.solarLife,
             batteryLife: lcoeParams.batteryLife,
             wacc: lcoeParams.wacc
@@ -2310,8 +2595,12 @@ async function ensureScrollyLcoeWorkerReady() {
     return lcoeWorkerReadyPromise;
 }
 
-function scheduleScrollyLcoeWorkerCompute(cacheKey, targetCf) {
-    if (!FEATURE_WORKER_LCOE || lcoeWorkerInFlight.has(cacheKey)) return;
+function scheduleScrollyLcoeWorkerCompute(cacheKey, targetCf, rerenderCtx = null) {
+    if (!FEATURE_WORKER_LCOE) return;
+    // Always track the latest re-render context so a still-in-flight compute repaints
+    // whichever section is now waiting on it.
+    if (rerenderCtx) lcoeWorkerRerenderCtx.set(cacheKey, rerenderCtx);
+    if (lcoeWorkerInFlight.has(cacheKey)) return;
     lcoeWorkerInFlight.add(cacheKey);
 
     (async () => {
@@ -2326,29 +2615,74 @@ function scheduleScrollyLcoeWorkerCompute(cacheKey, targetCf) {
                 localCapexByLocation: serializeScrollyLocalCapexMap()
             });
             const results = response?.results || [];
-            lcoeWorkerCache.set(cacheKey, results);
+            setLcoeCache(cacheKey, results);
+            const ctx = lcoeWorkerRerenderCtx.get(cacheKey);
+            if (ctx && isSectionRenderCurrent(ctx.sectionId, ctx.renderVersion)) {
+                rerenderCurrentSection(ctx.sectionId, ctx.renderVersion);
+            }
         } catch (err) {
             console.warn('Scrollytelling LCOE worker compute failed; using fallback.', err);
         } finally {
             lcoeWorkerInFlight.delete(cacheKey);
+            lcoeWorkerRerenderCtx.delete(cacheKey);
         }
     })();
 }
 
+// Re-run a section's render (used when a worker LCOE result lands for the section the
+// user is currently viewing). The cache is now warm, so renderVisualState draws and
+// marks the section ready, releasing the black hold.
+function rerenderCurrentSection(sectionId, renderVersion) {
+    if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
+    const state = getVisualState(sectionId);
+    if (!state) return;
+    transitionController.crossfade(() => {
+        if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
+        renderVisualState(state, sectionId, renderVersion);
+    });
+}
+
+// Bounded insertion-order cache for computed LCOE result sets (the outlook
+// year-animation can otherwise mint dozens of large per-year entries).
+const LCOE_CACHE_MAX = 40;
+function setLcoeCache(cacheKey, results) {
+    if (!lcoeWorkerCache.has(cacheKey) && lcoeWorkerCache.size >= LCOE_CACHE_MAX) {
+        const oldest = lcoeWorkerCache.keys().next().value;
+        if (oldest !== undefined) lcoeWorkerCache.delete(oldest);
+    }
+    lcoeWorkerCache.set(cacheKey, results);
+}
+
+// LCOE results the section renderer should draw. Returns cached results instantly,
+// otherwise asks the worker and returns null (the caller keeps the overlay black and
+// the worker re-renders on arrival). Falls back to a synchronous compute only when no
+// worker is available, so the main thread never freezes on a cold LCOE section.
+function getRenderLcoeResults(targetCf, options = {}, sectionId = currentSection, renderVersion = sectionRenderVersion) {
+    const useDiesel = options.includeDieselBackup ?? includeDieselBackup;
+    const cacheKey = buildScrollyWorkerCacheKey(targetCf, useDiesel);
+    const cached = lcoeWorkerCache.get(cacheKey);
+    if (cached?.length) return cached.map((row) => ({ ...row }));
+
+    if (FEATURE_WORKER_LCOE && !useDiesel && getScrollyLcoeWorker()) {
+        scheduleScrollyLcoeWorkerCompute(cacheKey, targetCf, { sectionId, renderVersion });
+        return null; // wait for the worker; the black hold + loader cover the wait
+    }
+    return computeLcoeForAllLocations(targetCf, options);
+}
+
+// Synchronous main-thread LCOE engine, now memoised by config so every caller
+// (section renders, charts, data-link handlers) gets instant results on repeat.
+// The worker path (getRenderLcoeResults / idle warm) populates the same cache.
 function computeLcoeForAllLocations(targetCf, options = {}) {
     const useDiesel = options.includeDieselBackup ?? includeDieselBackup;
-    const perf = startPerf('scrolly-lcoe-compute', { targetCf, workerEnabled: FEATURE_WORKER_LCOE, useDiesel });
-    if (FEATURE_WORKER_LCOE && !useDiesel) {
-        const cacheKey = buildScrollyWorkerCacheKey(targetCf);
-        const cached = lcoeWorkerCache.get(cacheKey);
-        scheduleScrollyLcoeWorkerCompute(cacheKey, targetCf);
-        if (cached?.length) {
-            const cloned = cached.map((row) => ({ ...row }));
-            endPerf(perf, { rows: cloned.length, source: 'worker-cache' });
-            return cloned;
-        }
+    const cacheKey = buildScrollyWorkerCacheKey(targetCf, useDiesel);
+    const cached = lcoeWorkerCache.get(cacheKey);
+    if (cached?.length) {
+        console.debug('[perf] scrolly-lcoe-compute', { targetCf, useDiesel, source: 'cache-hit', rows: cached.length });
+        return cached.map((row) => ({ ...row }));
     }
 
+    const perf = startPerf('scrolly-lcoe-compute', { targetCf, useDiesel });
     const results = [];
     const { solarCapex, batteryCapex, solarOpexPct, batteryOpexPct, solarLife, batteryLife, wacc } = lcoeParams;
     const globalSolarCapex = solarCapex * (lcoeOutlookMultipliers.solar || 1);
@@ -2372,6 +2706,14 @@ function computeLcoeForAllLocations(targetCf, options = {}) {
                     const solarCf = row.annual_cf;
                     const dieselShareCf = Math.max(0, targetCf - solarCf);
                     const firmCf = Math.max(solarCf, targetCf);
+                    // Isolate the diesel back-up's own contribution to LCOE ($/MWh) so the
+                    // "back-up cost only" map can colour by it. TODO: consolidate diesel formula —
+                    // these lines mirror the diesel branch of computeLcoe() (see [[lcoe-formula-duplicated]]).
+                    const annualMwh = firmCf * 8760;
+                    const dieselCapexAnnual = (1000 * lcoeParams.dieselCapex) * crf(effectiveWacc, lcoeParams.dieselLife);
+                    const dieselFuelPerMwh = (lcoeParams.dieselPriceUsdPerLiter * 1000) / (lcoeParams.dieselEfficiency * DIESEL_THERMAL_KWH_PER_LITER);
+                    const dieselFuelAnnual = (dieselShareCf * 8760) * dieselFuelPerMwh;
+                    const dieselLcoeAdder = annualMwh > 0 ? (dieselCapexAnnual + dieselFuelAnnual) / annualMwh : Infinity;
                     bestConfig = {
                         ...row,
                         lcoe,
@@ -2379,6 +2721,7 @@ function computeLcoeForAllLocations(targetCf, options = {}) {
                         firm_cf: firmCf,
                         solar_share_cf: solarCf,
                         diesel_share_cf: dieselShareCf,
+                        diesel_lcoe_adder: dieselLcoeAdder,
                         includeDieselBackup: true
                     };
                 }
@@ -2408,6 +2751,7 @@ function computeLcoeForAllLocations(targetCf, options = {}) {
     });
 
     endPerf(perf, { rows: results.length, source: 'main-thread' });
+    setLcoeCache(cacheKey, results.map((row) => ({ ...row })));
     return results;
 }
 
@@ -2415,13 +2759,16 @@ function computeLcoe(row, solarCapex, batteryCapex, wacc, solarLife, batteryLife
     const solarKw = row.solar_gw * 1000;
     const batteryKwh = row.batt_gwh * 1000;
 
-    const solarCapexTotal = solarKw * solarCapex;
+    const ilr = Number.isFinite(lcoeParams.ilr) && lcoeParams.ilr > 0 ? lcoeParams.ilr : 1;
+    const solarCapexTotal = solarKw * solarCapex / ilr;
     const batteryCapexTotal = batteryKwh * batteryCapex;
 
     const solarCrf = crf(wacc, solarLife);
     const batteryCrf = crf(wacc, batteryLife);
-    const annualSolarCost = solarCapexTotal * solarCrf + solarCapexTotal * solarOpexPct;
-    const annualBatteryCost = batteryCapexTotal * batteryCrf + batteryCapexTotal * batteryOpexPct;
+    const solarOpexEscalMult = levelizedGrowthMultiplier(lcoeParams.solarOpexEscalationPct || 0, wacc, solarLife);
+    const batteryOpexEscalMult = levelizedGrowthMultiplier(lcoeParams.batteryOpexEscalationPct || 0, wacc, batteryLife);
+    const annualSolarCost = solarCapexTotal * solarCrf + solarCapexTotal * solarOpexPct * solarOpexEscalMult;
+    const annualBatteryCost = batteryCapexTotal * batteryCrf + batteryCapexTotal * batteryOpexPct * batteryOpexEscalMult;
 
     if (dieselOptions?.includeDieselBackup) {
         const targetCf = dieselOptions.targetCf;
@@ -2439,7 +2786,8 @@ function computeLcoe(row, solarCapex, batteryCapex, wacc, solarLife, batteryLife
         return (annualSolarCost + annualBatteryCost + dieselCapexAnnual + dieselFuelAnnual) / annualMwh;
     }
 
-    const annualMwh = row.annual_cf * 8760;
+    const energyDegMult = levelizedGrowthMultiplier(-(lcoeParams.solarDegradationPct || 0), wacc, solarLife);
+    const annualMwh = row.annual_cf * 8760 * energyDegMult;
 
     if (annualMwh <= 0) return Infinity;
 

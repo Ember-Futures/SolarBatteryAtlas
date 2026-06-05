@@ -1,10 +1,10 @@
-# Solar Atlas
+# Solar + Battery Atlas
 
 An interactive web-based tool that simulates and visualizes the feasibility of achieving 24/7 baseload power supply using solar photovoltaics and battery storage across thousands of locations worldwide.
 
 ## Overview
 
-The Solar Atlas answers a fundamental question: **Can solar + battery storage alone provide constant "baseload" power 24/7/365?**
+The Solar + Battery Atlas answers a fundamental question: **Can solar + battery storage alone provide constant "baseload" power 24/7/365?**
 
 This tool simulates a 1 GW constant load at thousands of locations worldwide, calculating:
 - How much solar capacity (GW_DC) and battery storage (GWh) is needed to meet that load
@@ -115,9 +115,14 @@ Where:
 #### Annual Costs
 
 **Solar Component:**
+
+`Solar_CAPEX` is quoted per AC watt; it is divided by the ILR (DC:AC ratio) to convert
+to a per-DC-watt cost before multiplying by the DC capacity (`Solar_Capacity_kW` is DC).
+
 ```
-Solar_Annual_Cost = Solar_Capacity_kW × Solar_CAPEX × CRF(WACC, Solar_Life)
-                  + Solar_Capacity_kW × Solar_CAPEX × Solar_OPEX_Pct
+Solar_CAPEX_DC   = Solar_CAPEX / ILR
+Solar_Annual_Cost = Solar_Capacity_kW × Solar_CAPEX_DC × CRF(WACC, Solar_Life)
+                  + Solar_Capacity_kW × Solar_CAPEX_DC × Solar_OPEX_Pct
 ```
 
 **Battery Component:**
@@ -141,7 +146,8 @@ Annual_Energy_Delivered = Capacity_Factor × 8,760 hours × 1,000 MW
 ```
 
 **Default Economic Parameters:**
-- Solar CAPEX: $600/kW_DC
+- Solar CAPEX: $720/kW_AC (÷ ILR 1.3 ≈ $554/kW_DC)
+- ILR (AC→DC): 1.3
 - Battery CAPEX: $120/kWh
 - Solar OPEX: 1.5% of CAPEX annually
 - Battery OPEX: 2.0% of CAPEX annually

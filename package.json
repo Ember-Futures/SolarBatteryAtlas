@@ -1,7 +1,7 @@
 {
     "name": "solar-atlas",
     "version": "1.0.0",
-    "description": "Solar Atlas local development environment",
+    "description": "Solar + Battery Atlas local development environment",
     "scripts": {
         "dev": "vite",
         "start": "vite"

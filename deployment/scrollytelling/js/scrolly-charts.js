@@ -522,14 +522,25 @@ export async function showUptimeComparisonChart(reliabilityData, locationIndex, 
 
     // Helper to calculate LCOE same as scrolly.js
     const crf = (i, n) => (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1);
+    // Level-equivalent multiplier for a stream growing at `g`/yr; 1 when g === 0. Mirrors utils.js.
+    const levMult = (g, rate, years) => {
+        if (!(years > 0)) return 0;
+        const c = crf(rate, years);
+        const ratio = (1 + g) / (1 + rate);
+        const pv = Math.abs(ratio - 1) < 1e-12
+            ? years / (1 + rate)
+            : (1 / (1 + g)) * ratio * (1 - Math.pow(ratio, years)) / (1 - ratio);
+        return pv * c;
+    };
     const computeLcoe = (row, solarCapex, batteryCapex, solarCrf, batteryCrf, solarOpexPct, batteryOpexPct) => {
         const solarKw = row.solar_gw * 1000;
         const batteryKwh = row.batt_gwh * 1000;
-        const solarCapexTotal = solarKw * solarCapex;
+        const ilr = Number.isFinite(lcoeParams.ilr) && lcoeParams.ilr > 0 ? lcoeParams.ilr : 1;
+        const solarCapexTotal = solarKw * solarCapex / ilr;
         const batteryCapexTotal = batteryKwh * batteryCapex;
-        const annualSolarCost = solarCapexTotal * solarCrf + solarCapexTotal * solarOpexPct;
-        const annualBatteryCost = batteryCapexTotal * batteryCrf + batteryCapexTotal * batteryOpexPct;
-        const annualMwh = row.annual_cf * 8760;
+        const annualSolarCost = solarCapexTotal * solarCrf + solarCapexTotal * solarOpexPct * levMult(lcoeParams.solarOpexEscalationPct || 0, wacc, solarLife);
+        const annualBatteryCost = batteryCapexTotal * batteryCrf + batteryCapexTotal * batteryOpexPct * levMult(lcoeParams.batteryOpexEscalationPct || 0, wacc, batteryLife);
+        const annualMwh = row.annual_cf * 8760 * levMult(-(lcoeParams.solarDegradationPct || 0), wacc, solarLife);
         if (annualMwh <= 0) return Infinity;
         return (annualSolarCost + annualBatteryCost) / annualMwh;
     };
@@ -874,8 +885,21 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
         : null;
     const { solarCapex, batteryCapex, solarOpexPct, batteryOpexPct, solarLife, batteryLife, wacc } = lcoeParams;
     const crfValue = (i, n) => (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1);
+    // Level-equivalent multiplier for a stream growing at `g`/yr; 1 when g === 0. Mirrors utils.js.
+    const levMult = (g, rate, years) => {
+        if (!(years > 0)) return 0;
+        const c = crfValue(rate, years);
+        const ratio = (1 + g) / (1 + rate);
+        const pv = Math.abs(ratio - 1) < 1e-12
+            ? years / (1 + rate)
+            : (1 / (1 + g)) * ratio * (1 - Math.pow(ratio, years)) / (1 - ratio);
+        return pv * c;
+    };
     const solarCrf = crfValue(wacc, solarLife);
     const batteryCrf = crfValue(wacc, batteryLife);
+    const solarOpexEscalMult = levMult(lcoeParams.solarOpexEscalationPct || 0, wacc, solarLife);
+    const batteryOpexEscalMult = levMult(lcoeParams.batteryOpexEscalationPct || 0, wacc, batteryLife);
+    const energyDegMult = levMult(-(lcoeParams.solarDegradationPct || 0), wacc, solarLife);
     const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
     const dieselCapexAnnual = useDiesel
         ? 1000 * (lcoeParams.dieselCapex ?? 300) * crfValue(wacc, lcoeParams.dieselLife ?? 20)
@@ -887,8 +911,9 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     const computeLcoe = (row) => {
         const solarKw = row.solar_gw * 1000;
         const batteryKwh = row.batt_gwh * 1000;
-        const annualSolarCost = solarKw * solarCapex * (solarCrf + solarOpexPct);
-        const annualBatteryCost = batteryKwh * batteryCapex * (batteryCrf + batteryOpexPct);
+        const ilr = Number.isFinite(lcoeParams.ilr) && lcoeParams.ilr > 0 ? lcoeParams.ilr : 1;
+        const annualSolarCost = solarKw * (solarCapex / ilr) * (solarCrf + solarOpexPct * solarOpexEscalMult);
+        const annualBatteryCost = batteryKwh * batteryCapex * (batteryCrf + batteryOpexPct * batteryOpexEscalMult);
         if (useDiesel) {
             const solarCf = row.annual_cf;
             const dieselShareCf = Math.max(0, targetCf - solarCf);
@@ -899,7 +924,7 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
             const dieselFuelAnnual = dieselEnergyMwh * dieselFuelCostPerMwh;
             return (annualSolarCost + annualBatteryCost + dieselCapexAnnual + dieselFuelAnnual) / annualMwh;
         }
-        const annualMwh = row.annual_cf * 8760;
+        const annualMwh = row.annual_cf * 8760 * energyDegMult;
         return annualMwh > 0 ? (annualSolarCost + annualBatteryCost) / annualMwh : Infinity;
     };
 
@@ -1224,6 +1249,101 @@ export async function showGlobalPopulationLcoeChart(populationData, lcoeResults,
                 max: 100,
                 ticks: {
                     callback: (value) => `${value}%`
+                }
+            }
+        }
+    });
+
+    container.classList.remove('hidden', 'chart-slide-out');
+    container.classList.add('chart-slide-in');
+    document.querySelector('.scrolly-visual')?.classList.add('with-chart');
+}
+
+/**
+ * Back-up cost chart (Step 8): how expensive the diesel back-up is, distributed across the
+ * world population. X axis = cumulative share of population (deciles, sorted by back-up cost);
+ * Y axis = back-up cost ($/MWh) as stacked bars split into genset capex and diesel fuel (opex).
+ */
+export async function showBackupCostChart(backupResults, populationData, sbTarget) {
+    const container = document.getElementById('chart-container');
+    if (!container) return;
+
+    ensureCorrectLayout(false);
+
+    const pct = Math.round((sbTarget || 0) * 100);
+    const title = document.querySelector('#chart-layout-single .chart-title');
+    const subtitle = document.querySelector('#chart-layout-single .chart-subtitle');
+    if (title) title.textContent = 'Cost of Diesel Back-up to 100% Uptime';
+    if (subtitle) subtitle.textContent = `Back-up cost by share of world population, $/MWh — solar + battery to ${pct}% uptime, diesel for the rest`;
+
+    // Population by location
+    const popById = new Map();
+    let totalPop = 0;
+    (populationData || []).forEach(row => {
+        const pop = Number(row.population_2020 || 0);
+        if (!Number.isFinite(pop) || pop <= 0) return;
+        popById.set(Number(row.location_id), pop);
+        totalPop += pop;
+    });
+
+    // Per-location back-up cost (capex + fuel) weighted by population
+    const items = [];
+    (backupResults || []).forEach(r => {
+        const pop = popById.get(Number(r.location_id)) || 0;
+        if (pop <= 0) return;
+        const capex = Number(r.backup_capex_per_mwh) || 0;
+        const opex = Number(r.backup_opex_per_mwh) || 0;
+        if (!Number.isFinite(capex) || !Number.isFinite(opex)) return;
+        items.push({ pop, capex, opex, total: capex + opex });
+    });
+    items.sort((a, b) => a.total - b.total);
+
+    // Allocate population into 10 equal-population deciles (cheapest back-up first)
+    const N = 10;
+    const perDecile = totalPop / N;
+    const bins = Array.from({ length: N }, () => ({ pop: 0, capexW: 0, opexW: 0 }));
+    let bi = 0, acc = 0;
+    if (perDecile > 0) {
+        for (const it of items) {
+            let remaining = it.pop;
+            while (remaining > 0 && bi < N) {
+                const boundary = perDecile * (bi + 1);
+                const space = Math.max(0, boundary - acc);
+                const take = space > 0 ? Math.min(remaining, space) : remaining;
+                bins[bi].pop += take;
+                bins[bi].capexW += it.capex * take;
+                bins[bi].opexW += it.opex * take;
+                acc += take;
+                remaining -= take;
+                if (acc >= boundary - 1e-6 && bi < N - 1) bi++;
+            }
+        }
+    }
+
+    const labels = bins.map((_, i) => `${(i + 1) * 10}%`);
+    const capexData = bins.map(b => b.pop > 0 ? b.capexW / b.pop : 0);
+    const opexData = bins.map(b => b.pop > 0 ? b.opexW / b.pop : 0);
+
+    const chartData = {
+        labels,
+        datasets: [
+            { label: 'Genset capex', data: capexData, backgroundColor: 'rgba(100,116,139,0.85)', borderColor: '#64748b', borderWidth: 1 },
+            { label: 'Diesel fuel', data: opexData, backgroundColor: 'rgba(245,158,11,0.85)', borderColor: '#f59e0b', borderWidth: 1 }
+        ]
+    };
+
+    await renderChart('chart-layout-single', 'bar', chartData, {
+        scales: {
+            x: { stacked: true, title: { display: true, text: 'Cumulative share of world population' }, grid: { color: CHART_COLORS.grid }, ticks: { font: { size: 10 } } },
+            y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Back-up cost ($/MWh)' }, grid: { color: CHART_COLORS.grid }, ticks: { font: { size: 10 } } }
+        },
+        interaction: { intersect: false, mode: 'index' },
+        categoryPercentage: 0.9,
+        barPercentage: 0.95,
+        plugins: {
+            tooltip: {
+                callbacks: {
+                    label: (c) => `${c.dataset.label}: $${(c.parsed.y || 0).toFixed(1)}/MWh`
                 }
             }
         }

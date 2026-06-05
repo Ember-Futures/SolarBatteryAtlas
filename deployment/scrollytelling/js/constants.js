@@ -71,7 +71,7 @@ export const POTENTIAL_TOTAL_COLORS = [
  * 4) FEATURE_WORKER_LCOE
  * 5) FEATURE_FRAMECACHE (scrollytelling)
  */
-export const FEATURE_WORKER_LCOE = false;
+export const FEATURE_WORKER_LCOE = true;
 export const FEATURE_STAGED_PRELOAD = true;
 export const FEATURE_VORONOI_REUSE = true;
 export const FEATURE_FRAMECACHE = false;

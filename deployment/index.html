@@ -17,7 +17,7 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Solar Atlas</title>
+    <title>Solar + Battery Atlas</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -93,11 +93,11 @@
                     <circle cx="20" cy="21.8" r="2.9" fill="#fbbf24" stroke="none" />
                 </svg>
             </div>
-            <h1 class="font-medium text-lg tracking-tight text-white hidden sm:block">Solar Atlas</h1>
+            <h1 class="font-medium text-lg tracking-tight text-white hidden sm:block">Solar + Battery Atlas</h1>
         </div>
 
         <!-- View Mode Tabs (Center) -->
-        <div
+        <div data-tour="view-tabs"
             class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg p-1 flex gap-1 absolute left-1/2 -translate-x-1/2">
             <button data-mode="capacity"
                 class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors bg-primary text-black">
@@ -122,7 +122,13 @@
         </div>
 
         <!-- Right Actions -->
-        <div class="pointer-events-auto flex gap-2">
+        <div data-tour="right-actions" class="pointer-events-auto flex gap-2">
+            <button id="tour-start"
+                class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
+                title="Take a guided tour">
+                <span class="material-symbols-outlined text-[20px]">tour</span>
+                <span class="text-sm font-medium hidden sm:inline">Take a Tour</span>
+            </button>
             <a href="scrollytelling/index.html"
                 class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
                 title="Article: Harnessing the Sun">
@@ -177,7 +183,7 @@
                 </div>
 
                 <!-- Quick Stats (Mini) -->
-                <div class="pt-4 border-t border-white/10 grid grid-cols-2 gap-4">
+                <div data-tour="cf-stats" class="pt-4 border-t border-white/10 grid grid-cols-2 gap-4">
                     <div>
                         <div class="text-[10px] text-gray-500 uppercase tracking-wide">Avg CF</div>
                         <div class="text-lg font-medium text-white" id="stat-avg-cf">--%</div>
@@ -265,6 +271,18 @@
                             <input id="battery-opex" type="number" value="2.0" step="0.1" class="num-input">
                         </label>
                         <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Degradation (%/yr)</span>
+                            <input id="solar-degradation" type="number" value="0.5" step="0.1" min="0" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Opex Escal. (%/yr)</span>
+                            <input id="solar-opex-escalation" type="number" value="2.0" step="0.1" min="0" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Opex Escal. (%/yr)</span>
+                            <input id="battery-opex-escalation" type="number" value="2.0" step="0.1" min="0" class="num-input">
+                        </label>
+                        <label class="space-y-1">
                             <span class="text-[10px] text-gray-500 uppercase">Solar Life (yrs)</span>
                             <input id="solar-life" type="number" value="30" class="num-input">
                         </label>
@@ -301,7 +319,7 @@
                 </div>
 
                 <!-- Section: Diesel Generator -->
-                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
+                <div data-tour="diesel-section" class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
                     <label class="flex items-center justify-between gap-3 cursor-pointer">
                         <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Diesel Generator</span>
                         <input id="diesel-backup-toggle" type="checkbox" class="check-ember">
@@ -355,8 +373,6 @@
                     </div>
                 </div>
 
-                <!-- Footer Note -->
-                <p class="text-[10px] text-gray-600">Default sources: NREL, Ember, IEA</p>
             </div>
         </div>
 
@@ -652,6 +668,18 @@
                             <input id="pop-battery-opex" type="number" value="2.0" step="0.1" class="num-input">
                         </label>
                         <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Degradation (%/yr)</span>
+                            <input id="pop-solar-degradation" type="number" value="0.5" step="0.1" min="0" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Solar Opex Escal. (%/yr)</span>
+                            <input id="pop-solar-opex-escalation" type="number" value="2.0" step="0.1" min="0" class="num-input">
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-[10px] text-gray-500 uppercase">Battery Opex Escal. (%/yr)</span>
+                            <input id="pop-battery-opex-escalation" type="number" value="2.0" step="0.1" min="0" class="num-input">
+                        </label>
+                        <label class="space-y-1">
                             <span class="text-[10px] text-gray-500 uppercase">Solar Life (yrs)</span>
                             <input id="pop-solar-life" type="number" value="30" class="num-input">
                         </label>
@@ -826,6 +854,12 @@
                     <div class="w-3 h-3 rounded-full bg-gray-500"></div>
                     <span class="text-xs text-gray-300">Backup Generation</span>
                 </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full"
+                        style="background-image: repeating-linear-gradient(45deg, rgba(148,163,184,0.9) 0 1.5px, rgba(100,116,139,0.25) 1.5px 4px);">
+                    </div>
+                    <span class="text-xs text-gray-300">No Data (NA)</span>
+                </div>
             </div>
         </div>
 
@@ -975,8 +1009,8 @@
             class="relative bg-surface border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto p-8 space-y-6">
             <div class="flex justify-between items-start">
                 <div>
-                    <h2 class="text-2xl font-semibold text-white">Solar Atlas</h2>
-                    <p class="text-gray-400 mt-1">Understanding the metrics and models.</p>
+                    <h2 class="text-2xl font-semibold text-white">Solar + Battery Atlas</h2>
+                    <p class="text-gray-400 mt-1">How the tool works, and the data behind it.</p>
                 </div>
                 <button id="info-close" class="text-gray-400 hover:text-white">
                     <span class="material-symbols-outlined">close</span>
@@ -985,21 +1019,59 @@
 
             <div class="space-y-4 text-sm text-gray-300 leading-relaxed">
                 <p>
-                    <strong class="text-primary">The Goal:</strong> Can solar + battery storage alone provide a constant
-                    "baseload" power supply 24/7/365?
-                </p>
-                <p>
-                    This tool simulates a 1 MW constant load at thousands of locations worldwide. It calculates how much
-                    solar capacity (MW_DC) and battery storage (MWh) is needed to meet that load, and what the resulting
-                    Capacity Factor (reliability) and LCOE (cost) would be.
+                    <strong class="text-primary">The Goal:</strong> Can solar panels plus battery storage, on their own,
+                    deliver constant round-the-clock "baseload" power 24/7/365 — and at what cost? This tool tests that
+                    question at thousands of locations worldwide.
                 </p>
 
+                <h3 class="text-white font-medium pt-2">How it works</h3>
+                <ul class="list-disc pl-5 space-y-1.5">
+                    <li>Everything is sized per <strong class="text-white">1 MW of constant, round-the-clock
+                        demand</strong>, so results scale to any load. You choose how much solar (MW per MW of demand)
+                        and battery (MWh per MW of demand) to build.</li>
+                    <li>We start from a <strong class="text-white">full year of hourly weather data (2024) from NASA
+                        POWER</strong> for each location.</li>
+                    <li>For each hour, the local sunlight and temperature are turned into the <strong
+                        class="text-white">DC solar output</strong> that the chosen solar build would produce.</li>
+                    <li>An <strong class="text-white">hour-by-hour simulation</strong> then dispatches that energy: solar
+                        meets demand directly when the sun is up; surplus charges the battery (accounting for round-trip
+                        losses); the battery discharges to cover shortfalls; whatever is still unmet is recorded as a
+                        gap.</li>
+                    <li>Across the whole year, this gives each location's <strong class="text-white">Capacity
+                        Factor</strong>. It is pre-computed offline for 19 solar/battery combinations per location and
+                        loaded into your browser, so panning the map is instant.</li>
+                    <li><strong class="text-white">LCOE is calculated live in your browser</strong> from those capacity
+                        factors and your own cost assumptions — change the costs, financing, or year and results update
+                        immediately.</li>
+                </ul>
+
                 <h3 class="text-white font-medium pt-2">Key Metrics</h3>
-                <ul class="list-disc pl-5 space-y-1">
-                    <li><strong class="text-white">Capacity Factor (CF):</strong> The percentage of hours in a year that
-                        the system successfully meets the 1 MW demand.</li>
-                    <li><strong class="text-white">LCOE:</strong> Levelized Cost of Energy. The average cost per MWh of
-                        electricity produced, factoring in CAPEX, OPEX, and financing.</li>
+                <ul class="list-disc pl-5 space-y-1.5">
+                    <li><strong class="text-white">Capacity Factor (CF):</strong> the share of the year that solar +
+                        battery keep the baseload fully supplied — the reliability of the system.</li>
+                    <li><strong class="text-white">LCOE (Levelized Cost of Energy):</strong> the average lifetime cost
+                        per MWh, accounting for up-front build cost (CAPEX), operating costs (OPEX), financing (WACC),
+                        panel degradation, and equipment lifetimes. You can switch between <strong
+                        class="text-white">global</strong> cost assumptions and <strong class="text-white">local</strong>,
+                        region-specific costs, roll costs forward to a future year, and optionally add a <strong
+                        class="text-white">diesel backup</strong> generator to firm up the last few percent of supply.</li>
+                </ul>
+
+                <h3 class="text-white font-medium pt-2">What you can explore</h3>
+                <ul class="list-disc pl-5 space-y-1.5">
+                    <li><strong class="text-white">Capacity Factor Map:</strong> how reliably a chosen solar + battery
+                        build can meet the load, everywhere.</li>
+                    <li><strong class="text-white">Sample Weeks:</strong> replay a representative week hour-by-hour to
+                        watch solar output, battery charging/discharging, and any unmet demand.</li>
+                    <li><strong class="text-white">Potential Map:</strong> how much solar energy each area could
+                        realistically generate (PVOUT), under <em>technical</em> land limits or stricter <em>policy</em>
+                        limits.</li>
+                    <li><strong class="text-white">LCOE Map:</strong> the lowest cost to hit a target reliability at each
+                        location; compare against a reference location and see the breakeven cost of moving power between
+                        them.</li>
+                    <li><strong class="text-white">Supply-Demand Matching:</strong> line up where solar + storage works
+                        against where people live, how much electricity they use, grid reliability and access, and the
+                        fossil plants it could displace.</li>
                 </ul>
 
                 <h3 class="text-white font-medium pt-2">Data Sources</h3>
@@ -1028,20 +1100,33 @@
                         Data available under Creative Commons Attribution 4.0 International License.
                     </p>
                     <p>
+                        <strong class="text-gray-300">Solar Potential (PVOUT):</strong> Global Solar Atlas (World Bank
+                        Group / Solargis). Used in the Potential Map to estimate realistic annual generation per area.
+                    </p>
+                    <p>
+                        <strong class="text-gray-300">Grid Reliability &amp; Electricity Access:</strong> HREA
+                        (High Resolution Electricity Access), used in the Supply-Demand Matching demand layers.
+                    </p>
+                    <p>
                         <strong class="text-gray-300">Cost of Capital (WACC):</strong> Country-level WACC from
-                        yearly-costsofcapital-global-solar (2025). Local mode assigns the nearest available country WACC
-                        per Voronoi cell.
+                        Hatton et al. (2025), <em>Scientific Data</em> 12, 1912. Local mode assigns the nearest
+                        available country WACC per Voronoi cell.
                     </p>
                     <p>
                         <strong class="text-gray-300">Local CAPEX Assumptions:</strong> Regional solar/battery CAPEX
                         assumptions from IRENA/IEA/BNEF. Local mode maps each Voronoi cell to a region and interpolates
                         2024/2035/2050 values by year.
                     </p>
+                    <p>
+                        <strong class="text-gray-300">Diesel Prices:</strong> Retail diesel pump prices (World Bank /
+                        GlobalPetrolPrices), clamped to a global unsubsidized floor. Used for the optional diesel-backup
+                        comparison.
+                    </p>
                 </div>
 
                 <h3 class="text-white font-medium pt-4">Credits</h3>
                 <p class="text-xs text-gray-400">
-                    Created by Daan Walter, 2025.
+                    Created by the Electrotech Revolution team, 2026.
                 </p>
             </div>
         </div>
