@@ -6,6 +6,8 @@ const BASE_LOAD_MW = 1000;
 const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
 // Global unsubsidized diesel floor (crude + refining + delivery, pre-tax). Must match constants.js.
 const DIESEL_PRICE_FLOOR_USD_PER_LITER = 0.80;
+// 1 MWh_thermal = 3.412 MMBtu — used to convert wholesale gas ($/MMBtu) to OCGT fuel cost. Must match constants.js.
+const MMBTU_PER_MWH = 3.412;
 
 function capitalRecoveryFactor(rate, years) {
     if (!Number.isFinite(rate) || !Number.isFinite(years) || years <= 0) {
@@ -51,6 +53,11 @@ function getDieselInfo(dieselByLocation, locationId) {
     return dieselByLocation[String(locationId)] || dieselByLocation[locationId] || null;
 }
 
+function getGasInfo(gasByLocation, locationId) {
+    if (!gasByLocation) return null;
+    return gasByLocation[String(locationId)] || gasByLocation[locationId] || null;
+}
+
 function clampCf(value) {
     if (!Number.isFinite(value)) return 0;
     return Math.max(0, Math.min(1, value));
@@ -86,8 +93,33 @@ function computeDieselFuelCostPerMwh(dieselPriceUsdPerLiter, params) {
     return (dieselPriceUsdPerLiter * 1000) / (efficiency * DIESEL_THERMAL_KWH_PER_LITER);
 }
 
+// Resolve the wholesale gas price ($/MMBtu). Local mode uses the per-region IGU
+// price; global mode applies a single user value. Availability is always gated by
+// the per-region data (gasInfo.available) — regions with no gas market fall back to
+// diesel even in global mode.
+function computeEffectiveGasPriceUsdPerMmbtu(gasInfo, params) {
+    if (params?.gasPriceMode === 'global') {
+        const globalPrice = Number.isFinite(params?.gasPrice) ? params.gasPrice : null;
+        return { rawPrice: globalPrice, effectivePrice: globalPrice };
+    }
+    const rawPrice = Number.isFinite(gasInfo?.rawPrice ?? gasInfo?.price)
+        ? (gasInfo?.rawPrice ?? gasInfo?.price)
+        : null;
+    return { rawPrice, effectivePrice: rawPrice };
+}
+
+function computeGasFuelCostPerMwh(gasPriceUsdPerMmbtu, params) {
+    const efficiency = Number.isFinite(params.gasEfficiency) && params.gasEfficiency > 0
+        ? params.gasEfficiency
+        : null;
+    if (!Number.isFinite(gasPriceUsdPerMmbtu) || !efficiency) {
+        return Infinity;
+    }
+    return (gasPriceUsdPerMmbtu * MMBTU_PER_MWH) / efficiency;
+}
+
 // Per-location constants. All rows in a location share these.
-function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo) {
+function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo, gasInfo) {
     const resolvedWacc = Number.isFinite(localWacc) ? localWacc : params.wacc;
 
     const ilr = Number.isFinite(params.ilr) && params.ilr > 0 ? params.ilr : 1;
@@ -107,11 +139,17 @@ function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCape
     const batteryOpexEscalMult = levelizedGrowthMultiplier(params.batteryOpexEscalationPct || 0, resolvedWacc, params.batteryLife);
     const energyDegradationMult = levelizedGrowthMultiplier(-(params.solarDegradationPct || 0), resolvedWacc, params.solarLife);
 
+    // "Backup" is on/off; when on, each row picks the cheaper of diesel vs gas (OCGT).
     const includeDieselBackup = Boolean(params.includeDieselBackup);
     let dieselPricing = null;
     let dieselFuelCostPerMwh = 0;
     let dieselCapexAnnual = 0;
     let dieselContext = null;
+    let gasAvailable = false;
+    let gasPricing = null;
+    let gasFuelCostPerMwh = Infinity;
+    let gasCapexAnnual = 0;
+    let gasContext = null;
     if (includeDieselBackup) {
         dieselPricing = computeEffectiveDieselPriceUsdPerLiter(dieselInfo, params);
         dieselFuelCostPerMwh = computeDieselFuelCostPerMwh(dieselPricing.effectivePrice, params);
@@ -126,6 +164,22 @@ function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCape
             sourceCountry: dieselInfo?.sourceCountry ?? null,
             sourceSeriesName: dieselInfo?.sourceSeriesName ?? null
         };
+
+        // Gas (OCGT) is only a candidate where a wholesale price exists for the region.
+        gasAvailable = Boolean(gasInfo?.available);
+        if (gasAvailable) {
+            gasPricing = computeEffectiveGasPriceUsdPerMmbtu(gasInfo, params);
+            gasFuelCostPerMwh = computeGasFuelCostPerMwh(gasPricing.effectivePrice, params);
+            const gasCapex = BASE_LOAD_MW * 1000 * params.gasCapex;
+            const gasCrf = capitalRecoveryFactor(resolvedWacc, params.gasLife);
+            gasCapexAnnual = gasCapex * gasCrf;
+            gasContext = {
+                priceUsdPerMmbtu: gasPricing.effectivePrice,
+                sourceIso3: gasInfo?.sourceIso3 ?? null,
+                sourceCountry: gasInfo?.sourceCountry ?? null,
+                sourceDistanceKm: gasInfo?.sourceDistanceKm ?? null
+            };
+        }
     }
 
     return {
@@ -142,7 +196,12 @@ function precomputeLcoePerLocation(params, costMultipliers, localWacc, localCape
         dieselPricing,
         dieselFuelCostPerMwh,
         dieselCapexAnnual,
-        dieselContext
+        dieselContext,
+        gasAvailable,
+        gasPricing,
+        gasFuelCostPerMwh,
+        gasCapexAnnual,
+        gasContext
     };
 }
 
@@ -152,7 +211,7 @@ function computeLcoeMetrics(row, pre) {
     const solarShareCf = clampCf(row.annual_cf);
     const includeDieselBackup = pre.includeDieselBackup;
     const firmCf = includeDieselBackup ? 1 : solarShareCf;
-    const dieselShareCf = includeDieselBackup ? Math.max(0, 1 - solarShareCf) : 0;
+    const backupShareCf = includeDieselBackup ? Math.max(0, 1 - solarShareCf) : 0;
 
     const solarCapex = pre.solarCapexPerKw * solarKw;
     const batteryCapex = pre.batteryCapexBase * batteryKwh;
@@ -165,9 +224,15 @@ function computeLcoeMetrics(row, pre) {
     let annualEnergyMwh = Number.isFinite(row._annualEnergyMwh)
         ? row._annualEnergyMwh
         : solarShareCf * 8760 * BASE_LOAD_MW;
-    // PV degradation reduces the renewable energy denominator (diesel-firmed case below overrides).
+    // PV degradation reduces the renewable energy denominator (backup-firmed case below overrides).
     annualEnergyMwh *= pre.energyDegradationMult;
 
+    // Backup display/output fields. When backup is on we price BOTH diesel and gas
+    // (where available) and keep the cheaper. diesel_* fields stay populated for the
+    // tooltip; gas_* fields populate where a wholesale gas price exists.
+    let backupFuel = null;
+    let backupLcoeAdder = 0;
+    let backupEnergyMwh = 0;
     let dieselPriceUsdPerLiter = null;
     let dieselSourceYear = null;
     let dieselSourceType = null;
@@ -175,75 +240,26 @@ function computeLcoeMetrics(row, pre) {
     let dieselSourceCountryIso3 = null;
     let dieselSourceCountryName = null;
     let dieselSourceSeriesName = null;
-    let dieselEnergyMwh = 0;
-    let dieselLcoeAdder = 0;
+    let gasAvailable = false;
+    let gasPriceUsdPerMmbtu = null;
+    let gasSourceCountryIso3 = null;
+    let gasSourceCountryName = null;
+    let gasSourceDistanceKm = null;
 
-    if (includeDieselBackup) {
-        const dp = pre.dieselPricing;
-        const dc = pre.dieselContext;
-        dieselPriceUsdPerLiter = dp.effectivePrice;
-        dieselSourceYear = dc.sourceYear;
-        dieselSourceType = dc.sourceType;
-        dieselSourceDistanceKm = dc.sourceDistanceKm;
-        dieselSourceCountryIso3 = dc.sourceIso3;
-        dieselSourceCountryName = dc.sourceCountry;
-        dieselSourceSeriesName = dc.sourceSeriesName;
-        annualEnergyMwh = 8760 * BASE_LOAD_MW;
-        dieselEnergyMwh = dieselShareCf * annualEnergyMwh;
-
-        if (!Number.isFinite(pre.dieselFuelCostPerMwh)) {
-            return {
-                lcoe: Infinity,
-                annual_energy_mwh: annualEnergyMwh,
-                firm_cf: firmCf,
-                solar_share_cf: solarShareCf,
-                diesel_share_cf: dieselShareCf,
-                diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-                diesel_source_year: dieselSourceYear,
-                diesel_source_type: dieselSourceType,
-                diesel_source_distance_km: dieselSourceDistanceKm,
-                diesel_source_country_iso3: dieselSourceCountryIso3,
-                diesel_source_country_name: dieselSourceCountryName,
-                diesel_source_series_name: dieselSourceSeriesName,
-                diesel_energy_mwh: dieselEnergyMwh,
-                diesel_lcoe_adder: Infinity,
-                includeDieselBackup
-            };
-        }
-
-        const dieselFuelAnnual = dieselEnergyMwh * pre.dieselFuelCostPerMwh;
-        annualCost += pre.dieselCapexAnnual + dieselFuelAnnual;
-        dieselLcoeAdder = annualEnergyMwh > 0
-            ? (pre.dieselCapexAnnual + dieselFuelAnnual) / annualEnergyMwh
-            : Infinity;
-    }
-
-    if (!Number.isFinite(annualEnergyMwh) || annualEnergyMwh <= 0) {
-        return {
-            lcoe: Infinity,
-            annual_energy_mwh: annualEnergyMwh,
-            firm_cf: firmCf,
-            solar_share_cf: solarShareCf,
-            diesel_share_cf: dieselShareCf,
-            diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-            diesel_source_year: dieselSourceYear,
-            diesel_source_type: dieselSourceType,
-            diesel_source_distance_km: dieselSourceDistanceKm,
-            diesel_source_country_iso3: dieselSourceCountryIso3,
-            diesel_source_country_name: dieselSourceCountryName,
-            diesel_source_series_name: dieselSourceSeriesName,
-            diesel_energy_mwh: dieselEnergyMwh,
-            diesel_lcoe_adder: dieselLcoeAdder,
-            includeDieselBackup
-        };
-    }
-
-    return {
-        lcoe: annualCost / annualEnergyMwh,
+    const makeResult = (lcoe) => ({
+        lcoe,
         annual_energy_mwh: annualEnergyMwh,
         firm_cf: firmCf,
         solar_share_cf: solarShareCf,
-        diesel_share_cf: dieselShareCf,
+        diesel_share_cf: backupShareCf,
+        backup_share_cf: backupShareCf,
+        backup_fuel: backupFuel,
+        backup_lcoe_adder: backupLcoeAdder,
+        backup_energy_mwh: backupEnergyMwh,
+        // diesel_lcoe_adder/diesel_energy_mwh mirror the chosen backup so existing
+        // consumers (charts that read diesel_lcoe_adder) reflect the cheaper fuel.
+        diesel_lcoe_adder: backupLcoeAdder,
+        diesel_energy_mwh: backupEnergyMwh,
         diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
         diesel_source_year: dieselSourceYear,
         diesel_source_type: dieselSourceType,
@@ -251,10 +267,71 @@ function computeLcoeMetrics(row, pre) {
         diesel_source_country_iso3: dieselSourceCountryIso3,
         diesel_source_country_name: dieselSourceCountryName,
         diesel_source_series_name: dieselSourceSeriesName,
-        diesel_energy_mwh: dieselEnergyMwh,
-        diesel_lcoe_adder: dieselLcoeAdder,
+        gas_available: gasAvailable,
+        gas_price_usd_per_mmbtu: gasPriceUsdPerMmbtu,
+        gas_source_country_iso3: gasSourceCountryIso3,
+        gas_source_country_name: gasSourceCountryName,
+        gas_source_distance_km: gasSourceDistanceKm,
         includeDieselBackup
-    };
+    });
+
+    if (includeDieselBackup) {
+        annualEnergyMwh = 8760 * BASE_LOAD_MW;
+        backupEnergyMwh = backupShareCf * annualEnergyMwh;
+
+        // Diesel candidate (available wherever a diesel price resolves).
+        const dc = pre.dieselContext;
+        dieselPriceUsdPerLiter = pre.dieselPricing ? pre.dieselPricing.effectivePrice : null;
+        if (dc) {
+            dieselSourceYear = dc.sourceYear;
+            dieselSourceType = dc.sourceType;
+            dieselSourceDistanceKm = dc.sourceDistanceKm;
+            dieselSourceCountryIso3 = dc.sourceIso3;
+            dieselSourceCountryName = dc.sourceCountry;
+            dieselSourceSeriesName = dc.sourceSeriesName;
+        }
+        const dieselTotalAnnual = Number.isFinite(pre.dieselFuelCostPerMwh)
+            ? pre.dieselCapexAnnual + backupEnergyMwh * pre.dieselFuelCostPerMwh
+            : Infinity;
+
+        // Gas (OCGT) candidate — only where a wholesale price exists for the region.
+        gasAvailable = Boolean(pre.gasAvailable);
+        let gasTotalAnnual = Infinity;
+        if (gasAvailable && Number.isFinite(pre.gasFuelCostPerMwh)) {
+            gasTotalAnnual = pre.gasCapexAnnual + backupEnergyMwh * pre.gasFuelCostPerMwh;
+            const gc = pre.gasContext;
+            if (gc) {
+                gasPriceUsdPerMmbtu = gc.priceUsdPerMmbtu;
+                gasSourceCountryIso3 = gc.sourceIso3;
+                gasSourceCountryName = gc.sourceCountry;
+                gasSourceDistanceKm = gc.sourceDistanceKm;
+            }
+        }
+
+        // Pick the cheaper backup fuel for this configuration.
+        let backupTotalAnnual;
+        if (gasTotalAnnual < dieselTotalAnnual) {
+            backupFuel = 'gas';
+            backupTotalAnnual = gasTotalAnnual;
+        } else {
+            backupFuel = 'diesel';
+            backupTotalAnnual = dieselTotalAnnual;
+        }
+
+        if (!Number.isFinite(backupTotalAnnual)) {
+            backupLcoeAdder = Infinity;
+            return makeResult(Infinity);
+        }
+
+        annualCost += backupTotalAnnual;
+        backupLcoeAdder = annualEnergyMwh > 0 ? backupTotalAnnual / annualEnergyMwh : Infinity;
+    }
+
+    if (!Number.isFinite(annualEnergyMwh) || annualEnergyMwh <= 0) {
+        return makeResult(Infinity);
+    }
+
+    return makeResult(annualCost / annualEnergyMwh);
 }
 
 function sortByLocationId(results) {
@@ -270,7 +347,7 @@ function sortByLocationId(results) {
 }
 
 function computeBestLcoe(payload) {
-    const { targetCf, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation } = payload;
+    const { targetCf, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation, gasByLocation } = payload;
     const cheapestFirm = Boolean(params.includeDieselBackup) && params.dieselBackupMode === 'cheapest-firm';
     const results = [];
 
@@ -285,7 +362,8 @@ function computeBestLcoe(payload) {
         const localWacc = getLocalWacc(waccByLocation, locationId);
         const localCapex = getLocalCapex(localCapexByLocation, locationId);
         const dieselInfo = getDieselInfo(dieselByLocation, locationId);
-        const pre = precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo);
+        const gasInfo = getGasInfo(gasByLocation, locationId);
+        const pre = precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo, gasInfo);
 
         rows.forEach((row) => {
             const metrics = computeLcoeMetrics(row, pre);
@@ -339,7 +417,7 @@ function computeBestLcoe(payload) {
 }
 
 function computeCfAtTargetLcoe(payload) {
-    const { targetLcoe, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation } = payload;
+    const { targetLcoe, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation, gasByLocation } = payload;
     const results = [];
 
     STATE.rowsByLocation.forEach((rows, locationId) => {
@@ -350,7 +428,8 @@ function computeCfAtTargetLcoe(payload) {
         const localWacc = getLocalWacc(waccByLocation, locationId);
         const localCapex = getLocalCapex(localCapexByLocation, locationId);
         const dieselInfo = getDieselInfo(dieselByLocation, locationId);
-        const pre = precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo);
+        const gasInfo = getGasInfo(gasByLocation, locationId);
+        const pre = precomputeLcoePerLocation(params, costMultipliers, localWacc, localCapex, dieselInfo, gasInfo);
 
         rows.forEach((row) => {
             const metrics = computeLcoeMetrics(row, pre);

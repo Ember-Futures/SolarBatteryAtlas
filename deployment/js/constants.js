@@ -17,6 +17,9 @@ export const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
 // Clamps heavily-subsidized pump prices (Venezuela, Iran, Algeria) up to the
 // true economic cost a genset operator would face.
 export const DIESEL_PRICE_FLOOR_USD_PER_LITER = 0.80;
+// 1 MWh_thermal = 3.412 MMBtu. Converts a wholesale gas price ($/MMBtu) into an
+// OCGT fuel cost: $/MWh_elec = price_per_MMBtu * MMBTU_PER_MWH / efficiency.
+export const MMBTU_PER_MWH = 3.412;
 
 export const TX_WACC = 0.06;
 export const TX_LIFE = 50;

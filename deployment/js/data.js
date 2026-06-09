@@ -3,6 +3,7 @@ import { readParquet } from './parquet_wasm.js';
 // Initialize WASM
 let wasmModule = null;
 const DIESEL_DATA_VERSION = '2026-04-22-retail';
+const GAS_DATA_VERSION = '2026-06-09-igu2024';
 
 async function initWasm() {
     if (wasmModule) return wasmModule;
@@ -200,6 +201,18 @@ export async function loadVoronoiLocalCapexCsv() {
     }));
 }
 
+export async function loadVoronoiOverlappingCountriesCsv() {
+    const response = await fetch('data/voronoi_overlapping_countries.csv');
+    if (!response.ok) {
+        throw new Error('Voronoi overlapping-countries CSV not found at data/voronoi_overlapping_countries.csv');
+    }
+    const rows = parseCsv(await response.text());
+    return rows.map(row => ({
+        location_id: Number(row.location_id),
+        country_names: row.country_names ? row.country_names.split('|') : []
+    }));
+}
+
 export async function loadVoronoiDieselCsv() {
     const response = await fetch(`data/voronoi_diesel_prices.csv?v=${DIESEL_DATA_VERSION}`);
     if (!response.ok) {
@@ -228,6 +241,27 @@ export async function loadVoronoiDieselCsv() {
         diesel_2025_source: row.diesel_2025_source || null,
         diesel_2024_distance_km: parseOptionalNumber(row.diesel_2024_distance_km),
         diesel_2025_distance_km: parseOptionalNumber(row.diesel_2025_distance_km)
+    }));
+}
+
+export async function loadVoronoiGasCsv() {
+    const response = await fetch(`data/voronoi_gas_prices.csv?v=${GAS_DATA_VERSION}`);
+    if (!response.ok) {
+        throw new Error('Voronoi gas CSV not found at data/voronoi_gas_prices.csv');
+    }
+    const rows = parseCsv(await response.text());
+    return rows.map(row => ({
+        location_id: Number(row.location_id),
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        country_iso3: row.country_iso3 || null,
+        country_name: row.country_name || null,
+        gas_2024_iso3: row.gas_2024_iso3 || null,
+        gas_2024_country: row.gas_2024_country || null,
+        gas_2024_usd_per_mmbtu: parseOptionalNumber(row.gas_2024_usd_per_mmbtu),
+        gas_2024_source: row.gas_2024_source || null,
+        gas_2024_distance_km: parseOptionalNumber(row.gas_2024_distance_km),
+        gas_available: String(row.gas_available).trim().toLowerCase() === 'true'
     }));
 }
 

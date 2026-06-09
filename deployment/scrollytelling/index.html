@@ -430,8 +430,8 @@
                             <p>Hatton et al. (2025), <em>Scientific Data</em> 12, 1912</p>
                         </div>
                         <div>
-                            <strong class="text-gray-300">Local CAPEX & Diesel Prices:</strong>
-                            <p>Regional CAPEX (IRENA/IEA/BNEF); retail diesel prices (World Bank / GlobalPetrolPrices)</p>
+                            <strong class="text-gray-300">Local CAPEX & Back-up Fuel Prices:</strong>
+                            <p>Regional CAPEX (IRENA/IEA/BNEF); retail diesel prices (World Bank / GlobalPetrolPrices); wholesale gas prices (IGU Wholesale Gas Price Survey 2025, 2024 data)</p>
                         </div>
                     </div>
                     <div class="mt-8 pt-4 border-t border-white/10 text-center text-xs text-gray-500">
@@ -771,9 +771,9 @@
                             <input type="range" id="target-cf-slider" min="50" max="99" value="80" step="1"
                                 class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-colors">
                             <label id="diesel-backup-row" class="flex items-center justify-between gap-2 mt-2 cursor-pointer"
-                                title="Add a diesel genset sized to fill the gap between solar+battery output and the target uptime. Diesel is dispatched only up to the target uptime, not 100%.">
+                                title="Add a dispatchable generator sized to fill the gap between solar+battery output and the target uptime. Each region uses whichever is cheaper — diesel, or OCGT gas where a regional wholesale price exists. Dispatched only up to the target uptime, not 100%.">
                                 <span class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Include
-                                    diesel back-up</span>
+                                    firm back-up</span>
                                 <input type="checkbox" id="diesel-backup-toggle"
                                     class="h-3 w-3 accent-primary cursor-pointer">
                             </label>

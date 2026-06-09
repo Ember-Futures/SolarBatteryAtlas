@@ -20,7 +20,7 @@ export function createSharedPopup() {
  */
 export function buildTooltipHtml(title, lines = []) {
     const linesHtml = lines.filter(Boolean).join('\n');
-    return `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+    return `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
         <div class="font-semibold">${title}</div>
         ${linesHtml}
     </div>`;
@@ -33,7 +33,7 @@ export function buildCfTooltip(cf, solarGw, battGwh) {
     const cfPct = (cf * 100).toFixed(1);
     return buildTooltipHtml(
         `Capacity factor ${cfPct}%`,
-        [`<div class="text-slate-300">Share of the year a 1\u00a0MW baseload is met using ${solarGw} MW_DC solar + ${battGwh} MWh storage.</div>`]
+        [`<div class="text-muted">Share of the year a 1\u00a0MW baseload is met using ${solarGw} MW_DC solar + ${battGwh} MWh storage.</div>`]
     );
 }
 
@@ -55,10 +55,16 @@ export function buildDieselBackupLines(data, formatCurrency) {
     if (!data?.includeDieselBackup) return [];
 
     const lines = [];
-    if (Number.isFinite(data.diesel_share_cf)) {
-        lines.push(`<div class="text-slate-300">Backup diesel covers ${(data.diesel_share_cf * 100).toFixed(1)}% of annual energy.</div>`);
+    const fuel = data.backup_fuel === 'gas' ? 'gas' : 'diesel';
+    const fuelLabel = fuel === 'gas' ? 'OCGT gas' : 'diesel';
+    const shareCf = Number.isFinite(data.backup_share_cf) ? data.backup_share_cf : data.diesel_share_cf;
+    if (Number.isFinite(shareCf)) {
+        lines.push(`<div class="text-muted">Backup (${fuelLabel}, least-cost) covers ${(shareCf * 100).toFixed(1)}% of annual energy.</div>`);
     }
-    if (Number.isFinite(data.diesel_price_usd_per_liter)) {
+    if (fuel === 'gas' && Number.isFinite(data.gas_price_usd_per_mmbtu)) {
+        const sourceCountry = data.gas_source_country_name || 'regional market';
+        lines.push(`<div class="text-muted">Gas price: ${formatCurrency(data.gas_price_usd_per_mmbtu, 2)}/MMBtu • IGU 2024, ${sourceCountry}</div>`);
+    } else if (fuel === 'diesel' && Number.isFinite(data.diesel_price_usd_per_liter)) {
         const yearNote = Number.isFinite(data.diesel_source_year) ? ` (${data.diesel_source_year})` : '';
         const sourceCountry = data.diesel_source_country_name || 'source country';
         const sourceKind = data.diesel_source_type === 'nearest_country'
@@ -67,10 +73,11 @@ export function buildDieselBackupLines(data, formatCurrency) {
         const distanceNote = data.diesel_source_type === 'nearest_country' && Number.isFinite(data.diesel_source_distance_km)
             ? `, ${data.diesel_source_distance_km.toFixed(0)} km`
             : '';
-        lines.push(`<div class="text-slate-400">Diesel price: ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L${yearNote} • ${sourceKind}${distanceNote}</div>`);
+        lines.push(`<div class="text-muted">Diesel price: ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L${yearNote} • ${sourceKind}${distanceNote}</div>`);
     }
-    if (Number.isFinite(data.diesel_lcoe_adder)) {
-        lines.push(`<div class="text-slate-400">Diesel adds ${formatCurrency(data.diesel_lcoe_adder, 1)}/MWh to total LCOE.</div>`);
+    const adder = Number.isFinite(data.backup_lcoe_adder) ? data.backup_lcoe_adder : data.diesel_lcoe_adder;
+    if (Number.isFinite(adder)) {
+        lines.push(`<div class="text-muted">${fuel === 'gas' ? 'Gas (OCGT)' : 'Diesel'} adds ${formatCurrency(adder, 1)}/MWh to total LCOE.</div>`);
     }
     return lines;
 }
@@ -119,8 +126,18 @@ export function buildPlantTooltip(plant, formatNumber, capitalizeWord) {
         plant.plant_name || 'Power plant',
         [
             `<div>${(plant.fuel_group || '').toUpperCase()} • ${cap} MW</div>`,
-            `<div class="text-slate-300">${capitalizeWord(plant.status || '')}</div>`,
-            `<div class="text-slate-400">${plant.country || 'Unknown'}</div>`
+            `<div class="text-muted">${capitalizeWord(plant.status || '')}</div>`,
+            `<div class="text-muted">${plant.country || 'Unknown'}</div>`
         ]
     );
+}
+
+/**
+ * Build a muted line listing the countries a cell's area overlaps.
+ * Single country renders as "France"; several as "France · Spain · Andorra".
+ * @param {string[]} names - ordered country names (primary first)
+ */
+export function buildCountryLine(names) {
+    if (!Array.isArray(names) || names.length === 0) return '';
+    return `<div class="text-muted">${names.join(' · ')}</div>`;
 }

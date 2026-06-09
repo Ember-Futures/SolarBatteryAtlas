@@ -875,7 +875,7 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     const title = document.querySelector('#chart-layout-single .chart-title');
     const subtitle = document.querySelector('#chart-layout-single .chart-subtitle');
     if (title) title.textContent = useDiesel
-        ? 'Cost of solar + battery + diesel back-up to provide power'
+        ? 'Cost of solar + battery + firm back-up to provide power'
         : 'Cost of solar + battery system to provide power';
     if (subtitle) subtitle.textContent = `LCOE ($/MWh) to reach ${targetCfValue}% uptime, sorted by cost for 10% slices of the population without access`;
 
@@ -1273,8 +1273,8 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
     const pct = Math.round((sbTarget || 0) * 100);
     const title = document.querySelector('#chart-layout-single .chart-title');
     const subtitle = document.querySelector('#chart-layout-single .chart-subtitle');
-    if (title) title.textContent = 'Cost of Diesel Back-up to 100% Uptime';
-    if (subtitle) subtitle.textContent = `Back-up cost by share of world population, $/MWh — solar + battery to ${pct}% uptime, diesel for the rest`;
+    if (title) title.textContent = 'Cost of Firm Back-up to 100% Uptime';
+    if (subtitle) subtitle.textContent = `Back-up cost by share of world population, $/MWh — solar + battery to ${pct}% uptime, least-cost gas/diesel for the rest`;
 
     // Population by location
     const popById = new Map();
@@ -1327,8 +1327,8 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
     const chartData = {
         labels,
         datasets: [
-            { label: 'Genset capex', data: capexData, backgroundColor: 'rgba(100,116,139,0.85)', borderColor: '#64748b', borderWidth: 1 },
-            { label: 'Diesel fuel', data: opexData, backgroundColor: 'rgba(245,158,11,0.85)', borderColor: '#f59e0b', borderWidth: 1 }
+            { label: 'Generator capex', data: capexData, backgroundColor: 'rgba(100,116,139,0.85)', borderColor: '#64748b', borderWidth: 1 },
+            { label: 'Back-up fuel', data: opexData, backgroundColor: 'rgba(245,158,11,0.85)', borderColor: '#f59e0b', borderWidth: 1 }
         ]
     };
 

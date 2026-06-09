@@ -154,8 +154,8 @@ function buildSteps(ctx) {
         },
         {
             target: '[data-tour="diesel-section"]',
-            title: 'Diesel comparison',
-            body: 'Optionally add a diesel backup generator to compare against, or to firm up the last few percent of reliability. This helps where solar+battery alone is costly to push to 100%.',
+            title: 'Firm backup',
+            body: 'Optionally add a dispatchable backup to firm up the last few percent of reliability. Each region uses whichever is cheaper — diesel, or OCGT gas where a regional wholesale price exists. This helps where solar+battery alone is costly to push to 100%.',
             placement: 'right',
         },
         {

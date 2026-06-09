@@ -4,7 +4,7 @@
  */
 
 import { getVisualState, hasAnimation, getAnimation, interpolate } from './visual-states.js';
-import { loadSummary, loadPopulationCsv, loadGemPlantsCsv, loadVoronoiGemCapacityCsv, loadElectricityDemandData, loadReliabilityCsv, loadSample, loadSampleColumnar, loadWeeklyFrameCache, loadPvoutPotentialCsv, loadVoronoiWaccCsv, loadVoronoiLocalCapexCsv } from './data.js';
+import { loadSummary, loadPopulationCsv, loadGemPlantsCsv, loadVoronoiGemCapacityCsv, loadElectricityDemandData, loadReliabilityCsv, loadSample, loadSampleColumnar, loadWeeklyFrameCache, loadPvoutPotentialCsv, loadVoronoiWaccCsv, loadVoronoiLocalCapexCsv, loadVoronoiGasCsv } from './data.js';
 import { initMap, updateMap, updatePopulationSimple, updateLcoeMap, updateLcoePlantOverlay, updatePotentialMap, setAccessMetric, updateMapWithSampleFrame, clearAllMapLayers, map, initSampleFrameMap, updateSampleFrameColors, isSampleFrameInitialized, resetSampleFrameState, renderDualGlobes, hideDualGlobes } from './map.js';
 import { capitalRecoveryFactor as crf, levelizedGrowthMultiplier } from './utils.js';
 import { transitionController, initTransitions, TRANSITION_DURATION, interpolateColor } from './transitions.js';
@@ -26,10 +26,12 @@ let potentialLatBounds = { level1: null, level2: null };
 let electricityDemandMap = null;
 let waccMap = new Map();
 let localCapexMap = new Map();
+let gasMap = new Map(); // location_id -> { available, price } regional wholesale gas (IGU 2024)
 let capexMode = 'global'; // 'global' or 'local'
 let waccMode = 'global'; // 'global' or 'local'
 let capexDataLoaded = false;
 let waccDataLoaded = false;
+let gasDataLoaded = false;
 let localCapexCache = new Map();
 let localCapexCacheYear = null;
 let lcoeOutlookYear = new Date().getFullYear();
@@ -155,9 +157,15 @@ const lcoeParams = {
     dieselCapex: 300,            // $/kW
     dieselEfficiency: 0.35,      // fraction
     dieselLife: 20,              // years
-    dieselPriceUsdPerLiter: 1.30 // flat assumption ($1.00 floor + $0.15 delivery + $0.15 fallback)
+    dieselPriceUsdPerLiter: 1.30, // flat assumption ($1.00 floor + $0.15 delivery + $0.15 fallback)
+    // OCGT gas back-up — competes with diesel per region where a regional wholesale price exists (IGU 2024)
+    gasCapex: 800,               // $/kW
+    gasEfficiency: 0.35,         // fraction
+    gasLife: 25,                 // years
+    gasPriceUsdPerMmbtu: 4.88    // global fallback ($/MMBtu); per-region price used where available
 };
 const DIESEL_THERMAL_KWH_PER_LITER = 10.0;
+const MMBTU_PER_MWH = 3.412; // 1 MWh_thermal = 3.412 MMBtu (gas fuel-cost conversion)
 const DEFAULT_LCOE_TARGET_CF = 80;
 let includeDieselBackup = false;
 // Back-up Cost step (section-8): firm target is always 100%. The user sets the share of
@@ -391,6 +399,7 @@ function getPreloadTaskRunner(taskId) {
         case 'weekly': return preloadWeeklyConfigs;
         case 'wacc': return ensureWaccData;
         case 'capex': return ensureLocalCapexData;
+        case 'gas': return ensureGasData;
         case 'lcoe': return warmLcoeCache;
         default: return null;
     }
@@ -420,9 +429,9 @@ function buildPreloadTaskList(sectionId, immediate = []) {
         'cheap-populous': ['population', 'electricity', 'wacc'],
         'cheap-access': ['reliability', 'population'],
         'better-uptime': ['reliability', 'population'],
-        'backup-cost': ['wacc', 'capex', 'population'],
+        'backup-cost': ['wacc', 'capex', 'gas', 'population'],
         'planned-capacity': ['fossil', 'population'],
-        'lcoe-outlook': ['wacc', 'capex', 'population'],
+        'lcoe-outlook': ['wacc', 'capex', 'gas', 'population'],
         'path-forward': ['population']
     };
 
@@ -440,7 +449,7 @@ function buildPreloadTaskList(sectionId, immediate = []) {
 
     // Always keep low-priority warmup for downstream sections (incl. the worker LCOE
     // cache, so the cost maps are ready before the user scrolls into them).
-    ['population', 'reliability', 'fossil', 'electricity', 'weekly', 'wacc', 'capex', 'lcoe']
+    ['population', 'reliability', 'fossil', 'electricity', 'weekly', 'wacc', 'capex', 'gas', 'lcoe']
         .forEach((taskId) => pushTask(taskId, 'idle'));
 
     return ordered;
@@ -452,9 +461,9 @@ function getImmediateTasksForSection(sectionId) {
         case 'battery-shadow': return ['weekly'];
         case 'cheap-populous': return ['population'];
         case 'cheap-access': return ['reliability', 'population'];
-        case 'backup-cost': return ['wacc', 'capex'];
+        case 'backup-cost': return ['wacc', 'capex', 'gas'];
         case 'planned-capacity': return ['fossil'];
-        case 'lcoe-outlook': return ['wacc', 'capex'];
+        case 'lcoe-outlook': return ['wacc', 'capex', 'gas'];
         default: return [];
     }
 }
@@ -742,6 +751,59 @@ async function ensureLocalCapexData() {
         capexDataLoaded = false;
         return false;
     }
+}
+
+async function ensureGasData() {
+    if (gasDataLoaded) return true;
+    updateLoadingStatus('Loading regional gas prices...');
+    try {
+        const rows = await loadVoronoiGasCsv();
+        gasMap = new Map();
+        rows.forEach(row => {
+            if (!Number.isFinite(row.location_id)) return;
+            const price = Number(row.gas_2024_usd_per_mmbtu);
+            gasMap.set(row.location_id, {
+                available: Boolean(row.gas_available) && Number.isFinite(price),
+                price: Number.isFinite(price) ? price : null,
+                country: row.gas_2024_country || null
+            });
+        });
+        gasDataLoaded = true;
+        updateLoadingStatus('');
+        return true;
+    } catch (error) {
+        console.warn('Failed to load gas data:', error);
+        gasDataLoaded = false;
+        return false;
+    }
+}
+
+// Regional wholesale gas for a location (always uses IGU data; no global/local toggle here).
+function getLocalGas(locationId) {
+    if (!gasMap.size) return null;
+    return gasMap.get(locationId) || null;
+}
+
+// Annualised cost ($/yr per 1 MW backup) of the cheaper firm-backup fuel for a location.
+// Diesel uses the Article's flat price; gas uses the regional IGU price where available.
+function backupAnnualCost(locationId, backupShareCf, wacc) {
+    const backupEnergyMwh = Math.max(0, backupShareCf) * 8760;
+    const dieselCapexAnnual = (1000 * lcoeParams.dieselCapex) * crf(wacc, lcoeParams.dieselLife);
+    const dieselFuelPerMwh = (lcoeParams.dieselPriceUsdPerLiter * 1000) / (lcoeParams.dieselEfficiency * DIESEL_THERMAL_KWH_PER_LITER);
+    const dieselTotal = dieselCapexAnnual + backupEnergyMwh * dieselFuelPerMwh;
+
+    let best = { fuel: 'diesel', capexAnnual: dieselCapexAnnual, fuelAnnual: backupEnergyMwh * dieselFuelPerMwh, totalAnnual: dieselTotal };
+
+    const gasInfo = getLocalGas(locationId);
+    if (gasInfo?.available && Number.isFinite(gasInfo.price) && lcoeParams.gasEfficiency > 0) {
+        const gasCapexAnnual = (1000 * lcoeParams.gasCapex) * crf(wacc, lcoeParams.gasLife);
+        const gasFuelPerMwh = (gasInfo.price * MMBTU_PER_MWH) / lcoeParams.gasEfficiency;
+        const gasTotal = gasCapexAnnual + backupEnergyMwh * gasFuelPerMwh;
+        if (gasTotal < dieselTotal) {
+            best = { fuel: 'gas', capexAnnual: gasCapexAnnual, fuelAnnual: backupEnergyMwh * gasFuelPerMwh, totalAnnual: gasTotal };
+        }
+    }
+    return best;
 }
 
 function updateLoadingStatus(message) {
@@ -1225,7 +1287,7 @@ function setupInteractions() {
             lastLcoeResults = lcoeResults;
             lastLcoeColorInfo = colorInfo;
             updateLcoeMap(lcoeResults, { colorInfo, fossilCapacityMap, fossilPlants });
-            updateVisualLabel({ title: 'LCOE Map', subtitle: `Target: ${val}% Capacity Factor${includeDieselBackup ? ' + diesel back-up' : ''}` });
+            updateVisualLabel({ title: 'LCOE Map', subtitle: `Target: ${val}% Capacity Factor${includeDieselBackup ? ' + firm back-up' : ''}` });
 
             await showCumulativeCapacityChart(fossilCapacityData, lcoeResults);
         } else if (currentSection === 'cheap-access') {
@@ -1252,7 +1314,7 @@ function setupInteractions() {
             updateLcoeMap(lcoeResults, { colorInfo });
             await showGlobalPopulationLcoeChart(populationData, lcoeResults);
         } else if (currentSection === 'backup-cost') {
-            await ensurePopulationData();
+            await Promise.all([ensurePopulationData(), ensureGasData()]);
             const sbTarget = val / 100;
             renderBackupMap(sbTarget);
             await showBackupCostChart(getBackupResults(sbTarget), populationData, sbTarget);
@@ -1270,6 +1332,7 @@ function setupInteractions() {
     if (dieselBackupToggle) {
         dieselBackupToggle.addEventListener('change', async (e) => {
             includeDieselBackup = Boolean(e.target.checked);
+            if (includeDieselBackup) await ensureGasData();
             const val = targetCfSlider ? parseInt(targetCfSlider.value, 10) : DEFAULT_LCOE_TARGET_CF;
             await refreshTargetCfSection(val);
         });
@@ -1702,9 +1765,9 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
             }
         }
     }
-    // Section 8: Cheap diesel back-up to 100% uptime
+    // Section 8: Cheap least-cost (diesel/gas) back-up to 100% uptime
     else if (sectionId === 'backup-cost') {
-        await ensurePopulationData();
+        await Promise.all([ensurePopulationData(), ensureGasData()]);
         if (isStale()) return;
 
         if (inlineTargetCfContainer) inlineTargetCfContainer.classList.remove('hidden');
@@ -2016,23 +2079,23 @@ function computeBackupLcoeForAllLocations(sbTarget) {
         const sbAnnualCost = solarCapexTotal * crf(effWacc, solarLife) + solarCapexTotal * solarOpexPct * solarOpexEscalMult
             + batteryCapexTotal * crf(effWacc, batteryLife) + batteryCapexTotal * batteryOpexPct * batteryOpexEscalMult;
 
-        // 3. Diesel back-up fills from the config's actual uptime to 100%.
+        // 3. Least-cost firm back-up (diesel flat vs regional gas) fills from the config's uptime to 100%.
         const solarCf = Math.min(chosen.annual_cf, 1);
-        const dieselShareCf = Math.max(0, 1 - solarCf);
-        const dieselCapexAnnual = (1000 * lcoeParams.dieselCapex) * crf(effWacc, lcoeParams.dieselLife);
-        const dieselFuelPerMwh = (lcoeParams.dieselPriceUsdPerLiter * 1000) / (lcoeParams.dieselEfficiency * DIESEL_THERMAL_KWH_PER_LITER);
-        const dieselFuelAnnual = (dieselShareCf * HOURS) * dieselFuelPerMwh;
+        const backupShareCf = Math.max(0, 1 - solarCf);
+        const backup = backupAnnualCost(chosen.location_id, backupShareCf, effWacc);
 
-        const backupCapexPerMwh = dieselCapexAnnual / firmMwh;
-        const backupOpexPerMwh = dieselFuelAnnual / firmMwh;
-        const fullLcoe = (sbAnnualCost + dieselCapexAnnual + dieselFuelAnnual) / firmMwh;
+        const backupCapexPerMwh = backup.capexAnnual / firmMwh;
+        const backupOpexPerMwh = backup.fuelAnnual / firmMwh;
+        const fullLcoe = (sbAnnualCost + backup.totalAnnual) / firmMwh;
 
         results.push({
             ...chosen,
             lcoe: fullLcoe,
             meetsTarget: true,
             solar_share_cf: solarCf,
-            diesel_share_cf: dieselShareCf,
+            diesel_share_cf: backupShareCf,
+            backup_share_cf: backupShareCf,
+            backup_fuel: backup.fuel,
             backup_capex_per_mwh: backupCapexPerMwh,
             backup_opex_per_mwh: backupOpexPerMwh,
             backup_total_per_mwh: backupCapexPerMwh + backupOpexPerMwh
@@ -2051,7 +2114,7 @@ function renderBackupMap(sbTarget) {
     updateLegend('lcoe');
     updateVisualLabel({
         title: 'Cost of 100% Uptime',
-        subtitle: `Solar + battery to ${Math.round(sbTarget * 100)}% uptime, diesel back-up for the rest`
+        subtitle: `Solar + battery to ${Math.round(sbTarget * 100)}% uptime, least-cost gas/diesel back-up for the rest`
     });
 }
 
@@ -2704,24 +2767,24 @@ function computeLcoeForAllLocations(targetCf, options = {}) {
                 if (lcoe < minLcoe) {
                     minLcoe = lcoe;
                     const solarCf = row.annual_cf;
-                    const dieselShareCf = Math.max(0, targetCf - solarCf);
+                    const backupShareCf = Math.max(0, targetCf - solarCf);
                     const firmCf = Math.max(solarCf, targetCf);
-                    // Isolate the diesel back-up's own contribution to LCOE ($/MWh) so the
-                    // "back-up cost only" map can colour by it. TODO: consolidate diesel formula —
-                    // these lines mirror the diesel branch of computeLcoe() (see [[lcoe-formula-duplicated]]).
+                    // Isolate the back-up's own contribution to LCOE ($/MWh) so the "back-up cost
+                    // only" map can colour by it. Uses the least-cost fuel (diesel flat vs regional gas).
                     const annualMwh = firmCf * 8760;
-                    const dieselCapexAnnual = (1000 * lcoeParams.dieselCapex) * crf(effectiveWacc, lcoeParams.dieselLife);
-                    const dieselFuelPerMwh = (lcoeParams.dieselPriceUsdPerLiter * 1000) / (lcoeParams.dieselEfficiency * DIESEL_THERMAL_KWH_PER_LITER);
-                    const dieselFuelAnnual = (dieselShareCf * 8760) * dieselFuelPerMwh;
-                    const dieselLcoeAdder = annualMwh > 0 ? (dieselCapexAnnual + dieselFuelAnnual) / annualMwh : Infinity;
+                    const backup = backupAnnualCost(row.location_id, backupShareCf, effectiveWacc);
+                    const backupLcoeAdder = annualMwh > 0 ? backup.totalAnnual / annualMwh : Infinity;
                     bestConfig = {
                         ...row,
                         lcoe,
                         meetsTarget: true,
                         firm_cf: firmCf,
                         solar_share_cf: solarCf,
-                        diesel_share_cf: dieselShareCf,
-                        diesel_lcoe_adder: dieselLcoeAdder,
+                        diesel_share_cf: backupShareCf,
+                        backup_share_cf: backupShareCf,
+                        backup_fuel: backup.fuel,
+                        backup_lcoe_adder: backupLcoeAdder,
+                        diesel_lcoe_adder: backupLcoeAdder,
                         includeDieselBackup: true
                     };
                 }
@@ -2773,17 +2836,13 @@ function computeLcoe(row, solarCapex, batteryCapex, wacc, solarLife, batteryLife
     if (dieselOptions?.includeDieselBackup) {
         const targetCf = dieselOptions.targetCf;
         const solarCf = row.annual_cf;
-        const dieselShareCf = Math.max(0, targetCf - solarCf);
+        const backupShareCf = Math.max(0, targetCf - solarCf);
         const servedCf = Math.max(solarCf, targetCf);
         const annualMwh = servedCf * 8760;
         if (annualMwh <= 0) return Infinity;
-        // BASE_LOAD_MW = 1 MW for per-MW LCOE; diesel capex is $/kW * 1000 = per MW
-        const dieselCapexTotal = 1000 * lcoeParams.dieselCapex;
-        const dieselCapexAnnual = dieselCapexTotal * crf(wacc, lcoeParams.dieselLife);
-        const dieselFuelCostPerMwh = (lcoeParams.dieselPriceUsdPerLiter * 1000) / (lcoeParams.dieselEfficiency * DIESEL_THERMAL_KWH_PER_LITER);
-        const dieselEnergyMwh = dieselShareCf * 8760;
-        const dieselFuelAnnual = dieselEnergyMwh * dieselFuelCostPerMwh;
-        return (annualSolarCost + annualBatteryCost + dieselCapexAnnual + dieselFuelAnnual) / annualMwh;
+        // Least-cost firm backup (diesel flat vs regional gas) for this location, per 1 MW.
+        const backup = backupAnnualCost(row.location_id, backupShareCf, wacc);
+        return (annualSolarCost + annualBatteryCost + backup.totalAnnual) / annualMwh;
     }
 
     const energyDegMult = levelizedGrowthMultiplier(-(lcoeParams.solarDegradationPct || 0), wacc, solarLife);

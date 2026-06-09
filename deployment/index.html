@@ -233,7 +233,7 @@
                     </div>
                 </div>
                 <div id="target-cf-backup-note" class="hidden text-[10px] text-gray-500 leading-snug">
-                    With diesel back-up, the target CF still applies to solar + battery. Diesel fills the remaining load to 100%.
+                    With firm backup on, the target CF still applies to solar + battery. The least-cost generator (diesel or gas) fills the remaining load to 100%.
                 </div>
 
                 <!-- Target LCOE Input (visible in LCOE mode) -->
@@ -321,19 +321,20 @@
                     </div>
                 </div>
 
-                <!-- Section: Diesel Generator -->
+                <!-- Section: Firm Backup (least-cost diesel vs OCGT gas) -->
                 <div data-tour="diesel-section" class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
                     <label class="flex items-center justify-between gap-3 cursor-pointer">
-                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Diesel Generator</span>
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Firm Backup</span>
                         <input id="diesel-backup-toggle" type="checkbox" class="check-ember">
                     </label>
-                    <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet
-                        load after solar + battery.</div>
+                    <div class="text-[10px] text-gray-500 leading-snug">Cover any unmet load after solar + battery with a
+                        1 MW dispatchable generator. Each region uses whichever is cheaper — diesel, or OCGT gas where a
+                        regional wholesale price exists (IGU 2024).</div>
                     <div id="diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
                         <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
                             <input type="radio" name="diesel-backup-mode" value="min-solar" checked
                                 class="check-ember mt-0.5">
-                            <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                            <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; the generator fills the rest.</span>
                         </label>
                         <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
                             <input type="radio" name="diesel-backup-mode" value="cheapest-firm"
@@ -371,6 +372,39 @@
                             <label class="space-y-1 col-span-2">
                                 <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
                                 <input id="diesel-life" type="number" value="20" class="num-input">
+                            </label>
+                        </div>
+                    </div>
+                    <div id="gas-source-wrapper" class="hidden space-y-3 pt-1 border-t border-white/5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10px] text-gray-500 uppercase">Gas (OCGT) Assumptions</span>
+                            <div id="gas-source-toggle" class="toggle-group">
+                                <button data-mode="global"
+                                    class="toggle-btn toggle-btn-sm">Global</button>
+                                <button data-mode="local"
+                                    class="toggle-btn toggle-btn-sm is-active">Local</button>
+                            </div>
+                        </div>
+                        <div class="text-[10px] text-gray-500 leading-snug">Local uses regional wholesale gas prices (IGU
+                            Wholesale Gas Price Survey 2024); regions with no gas market default to diesel. Global uses the price below.</div>
+                        <div id="gas-global-inputs" class="grid grid-cols-2 gap-3">
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Price ($/MMBtu)</span>
+                                <input id="gas-price" type="number" value="4.88" step="0.1" min="0"
+                                    class="num-input">
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Capex ($/kW)</span>
+                                <input id="gas-capex" type="number" value="800" class="num-input">
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Efficiency (%)</span>
+                                <input id="gas-efficiency" type="number" value="35" step="0.1" min="1" max="100"
+                                    class="num-input">
+                            </label>
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Life (yrs)</span>
+                                <input id="gas-life" type="number" value="25" class="num-input">
                             </label>
                         </div>
                     </div>
@@ -637,7 +671,7 @@
                         </div>
                     </div>
                     <div id="pop-target-cf-backup-note" class="hidden text-[10px] text-gray-500 leading-snug">
-                        With diesel back-up, the target CF still applies to solar + battery. Diesel fills the remaining load to 100%.
+                        With firm backup on, the target CF still applies to solar + battery. The least-cost generator (diesel or gas) fills the remaining load to 100%.
                     </div>
 
                 <!-- Section: Solar & Battery Cost -->
@@ -697,6 +731,25 @@
                     </div>
                 </div>
 
+                <!-- Section: Cost Decline Timeline -->
+                <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-2">
+                    <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Cost Decline Timeline</span>
+                    <div class="flex items-center gap-3">
+                        <input type="range" id="pop-lcoe-time-slider" min="2026" max="2050" step="1" value="2026"
+                            class="flex-1">
+                        <span class="text-sm font-mono text-sky-300 w-14 text-right" id="pop-lcoe-time-year">2026</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[10px] text-gray-500">
+                        <span>Solar: <span id="pop-lcoe-time-solar">100%</span></span>
+                        <span>Battery: <span id="pop-lcoe-time-battery">100%</span></span>
+                        <button id="pop-lcoe-time-play"
+                            class="px-2 py-0.5 rounded bg-surface text-gray-300 hover:text-white hover:bg-gray-600 transition-colors">
+                            Play
+                        </button>
+                    </div>
+                    <div class="text-[10px] text-gray-600">Scrub to apply year-based cost declines to solar &amp; battery (global multipliers and local capex).</div>
+                </div>
+
                 <!-- Section: WACC -->
                 <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
                     <div class="flex items-center justify-between gap-2">
@@ -718,19 +771,20 @@
                     </div>
                 </div>
 
-                <!-- Section: Diesel Generator -->
+                <!-- Section: Firm Backup (least-cost diesel vs OCGT gas) -->
                 <div class="rounded-lg border border-white/10 bg-surface-variant/60 px-3 py-3 space-y-3">
                     <label class="flex items-center justify-between gap-3 cursor-pointer">
-                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Diesel Generator</span>
+                        <span class="text-[11px] font-medium text-gray-300 uppercase tracking-wide">Firm Backup</span>
                         <input id="pop-diesel-backup-toggle" type="checkbox" class="check-ember">
                     </label>
-                    <div class="text-[10px] text-gray-500 leading-snug">Use a 1 MW diesel genset to cover any unmet
-                        load after solar + battery.</div>
+                    <div class="text-[10px] text-gray-500 leading-snug">Cover any unmet load after solar + battery with a
+                        1 MW dispatchable generator. Each region uses whichever is cheaper — diesel, or OCGT gas where a
+                        regional wholesale price exists (IGU 2024).</div>
                     <div id="pop-diesel-backup-mode-group" class="hidden space-y-1 pt-1 border-t border-white/5">
                         <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
                             <input type="radio" name="pop-diesel-backup-mode" value="min-solar" checked
                                 class="check-ember mt-0.5">
-                            <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; diesel fills the rest.</span>
+                            <span><span class="font-semibold text-gray-200">Min. solar share:</span> solar + battery meets target CF; the generator fills the rest.</span>
                         </label>
                         <label class="flex items-start gap-2 text-[10px] text-gray-300 leading-snug cursor-pointer">
                             <input type="radio" name="pop-diesel-backup-mode" value="cheapest-firm"
@@ -768,6 +822,39 @@
                             <label class="space-y-1 col-span-2">
                                 <span class="text-[10px] text-gray-500 uppercase">Diesel Life (yrs)</span>
                                 <input id="pop-diesel-life" type="number" value="20" class="num-input">
+                            </label>
+                        </div>
+                    </div>
+                    <div id="pop-gas-source-wrapper" class="hidden space-y-3 pt-1 border-t border-white/5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10px] text-gray-500 uppercase">Gas (OCGT) Assumptions</span>
+                            <div id="pop-gas-source-toggle" class="toggle-group">
+                                <button data-mode="global"
+                                    class="toggle-btn toggle-btn-sm">Global</button>
+                                <button data-mode="local"
+                                    class="toggle-btn toggle-btn-sm is-active">Local</button>
+                            </div>
+                        </div>
+                        <div class="text-[10px] text-gray-500 leading-snug">Local uses regional wholesale gas prices (IGU
+                            Wholesale Gas Price Survey 2024); regions with no gas market default to diesel. Global uses the price below.</div>
+                        <div id="pop-gas-global-inputs" class="grid grid-cols-2 gap-3">
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Price ($/MMBtu)</span>
+                                <input id="pop-gas-price" type="number" value="4.88" step="0.1" min="0"
+                                    class="num-input">
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Capex ($/kW)</span>
+                                <input id="pop-gas-capex" type="number" value="800" class="num-input">
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Efficiency (%)</span>
+                                <input id="pop-gas-efficiency" type="number" value="35" step="0.1" min="1" max="100"
+                                    class="num-input">
+                            </label>
+                            <label class="space-y-1 col-span-2">
+                                <span class="text-[10px] text-gray-500 uppercase">Gas Life (yrs)</span>
+                                <input id="pop-gas-life" type="number" value="25" class="num-input">
                             </label>
                         </div>
                     </div>

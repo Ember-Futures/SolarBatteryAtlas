@@ -9,7 +9,31 @@ import {
     POTENTIAL_TOTAL_COLORS,
     FEATURE_VORONOI_REUSE
 } from './constants.js';
-import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines } from './tooltip.js';
+import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
+
+// Per-cell country overlap list (location_id -> ordered string[]), populated from
+// app.js once the overlapping-countries CSV loads. Lets every map tooltip show the
+// country (or countries, for border-straddling cells) the hovered cell covers.
+let cellCountriesLookup = new Map();
+export function setCellCountries(lookup) {
+    cellCountriesLookup = lookup instanceof Map ? lookup : new Map();
+}
+function buildCountryLineFor(d) {
+    if (!d) return '';
+    let names = Array.isArray(d.country_names) ? d.country_names : null;
+    if (!names && Number.isFinite(d.location_id)) {
+        names = cellCountriesLookup.get(d.location_id);
+    }
+    return buildCountryLine(names);
+}
+// Insert the country line as the last child of an existing tooltip HTML string.
+function appendCountryLine(html, d) {
+    if (!html) return html;
+    const line = buildCountryLineFor(d);
+    if (!line) return html;
+    const idx = html.lastIndexOf('</div>');
+    return idx === -1 ? html + line : html.slice(0, idx) + line + html.slice(idx);
+}
 
 let map;
 let markersLayer;
@@ -202,7 +226,7 @@ export function ensureWorldGeoJsonLoaded() {
     if (worldGeoJsonPromise) return worldGeoJsonPromise;
     const sources = [
         'data/world.geojson',
-        'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson'
+        'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson'
     ];
     worldGeoJsonPromise = (async () => {
         for (const source of sources) {
@@ -345,17 +369,23 @@ function buildLcoeConfigLine(data) {
 function buildDieselLocationSummaryText(data) {
     if (!data?.includeDieselBackup) return '';
     const parts = [];
-    if (Number.isFinite(data.diesel_share_cf)) {
-        parts.push(`Backup diesel covers ${(data.diesel_share_cf * 100).toFixed(1)}% of annual energy`);
+    const fuel = data.backup_fuel === 'gas' ? 'gas' : 'diesel';
+    const fuelLabel = fuel === 'gas' ? 'gas (OCGT)' : 'diesel';
+    const shareCf = Number.isFinite(data.backup_share_cf) ? data.backup_share_cf : data.diesel_share_cf;
+    if (Number.isFinite(shareCf)) {
+        parts.push(`Backup ${fuelLabel} covers ${(shareCf * 100).toFixed(1)}% of annual energy`);
     }
-    if (Number.isFinite(data.diesel_price_usd_per_liter)) {
+    if (fuel === 'gas' && Number.isFinite(data.gas_price_usd_per_mmbtu)) {
+        parts.push(`Gas ${formatCurrency(data.gas_price_usd_per_mmbtu, 2)}/MMBtu from ${data.gas_source_country_name || 'regional market'}`);
+    } else if (fuel === 'diesel' && Number.isFinite(data.diesel_price_usd_per_liter)) {
         const sourceKind = data.diesel_source_type === 'nearest_country'
             ? `Diesel ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L from ${data.diesel_source_country_name || 'nearest country'}`
             : `Diesel ${formatCurrency(data.diesel_price_usd_per_liter, 2)}/L local`;
         parts.push(sourceKind);
     }
-    if (Number.isFinite(data.diesel_lcoe_adder)) {
-        parts.push(`Diesel adds ${formatCurrency(data.diesel_lcoe_adder, 1)}/MWh`);
+    const adder = Number.isFinite(data.backup_lcoe_adder) ? data.backup_lcoe_adder : data.diesel_lcoe_adder;
+    if (Number.isFinite(adder)) {
+        parts.push(`${fuel === 'gas' ? 'Gas' : 'Diesel'} adds ${formatCurrency(adder, 1)}/MWh`);
     }
     return parts.join(' • ');
 }
@@ -363,7 +393,7 @@ function buildDieselLocationSummaryText(data) {
 function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
     if (!d) return '';
     if (overlayMode === 'cf') {
-        return `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+        return `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
             <div class="font-semibold">CF: ${(d.annual_cf * 100).toFixed(1)}%</div>
             <div>Solar ${d.solar_gw} MW_DC | Battery ${d.batt_gwh} MWh</div>
         </div>`;
@@ -401,19 +431,19 @@ function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
             mainLine = 'No demand data available';
         } else if (isMultiple) {
             mainLine = `Solar Potential / Demand: ${ratio !== null ? `${formatNumber(ratio, 2)}×` : '--'}`;
-            demandLine = `<div class="text-slate-300">Demand: ${demandTwh ? `${formatNumber(demandTwh, 2)} TWh/yr` : '0 TWh/yr'}</div>`;
+            demandLine = `<div class="text-muted">Demand: ${demandTwh ? `${formatNumber(demandTwh, 2)} TWh/yr` : '0 TWh/yr'}</div>`;
         } else {
             mainLine = `Solar Generation Potential: ${formatNumber(total, 2)} TWh/yr`;
         }
         const showBreakdown = !noData && (rooftop > 0 || ground > 0);
         const breakdownLine = showBreakdown
-            ? `<div class="text-slate-300">Ground-mount: ${formatNumber(ground, 2)} TWh/yr • Rooftop: ${formatNumber(rooftop, 2)} TWh/yr</div>`
+            ? `<div class="text-muted">Ground-mount: ${formatNumber(ground, 2)} TWh/yr • Rooftop: ${formatNumber(rooftop, 2)} TWh/yr</div>`
             : '';
-        return `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+        return `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
             <div class="font-semibold">${mainLine}</div>
             ${demandLine}
             ${breakdownLine}
-            <div class="text-slate-300">${getPotentialLevelLabel(level)} • 40 MW/km² ground, 100 MW/km² rooftop</div>
+            <div class="text-muted">${getPotentialLevelLabel(level)} • 40 MW/km² ground, 100 MW/km² rooftop</div>
         </div>`;
     }
     return '';
@@ -438,7 +468,7 @@ function syncHoverToSupply(row) {
     const popup = ensureSupplyPopup();
     const html = buildSupplyTooltipHtml(supplyRow, lastSupplyState.overlayMode, lastSupplyState.potentialState);
     if (popup && html) {
-        popup.setLatLng([supplyRow.latitude, supplyRow.longitude]).setContent(html).openOn(supplyMap);
+        popup.setLatLng([supplyRow.latitude, supplyRow.longitude]).setContent(appendCountryLine(html, supplyRow)).openOn(supplyMap);
     }
 }
 
@@ -860,9 +890,10 @@ export function updateMap(data, solarGw, battGwh, options = {}) {
             hit.on('mouseover', () => {
                 const row = hit.__data;
                 if (!row) return;
-                const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                 <div class="font-semibold">Capacity factor ${(row.annual_cf * 100).toFixed(1)}%</div>
-                <div class="text-slate-300">Share of the year a 1&nbsp;MW baseload is met using ${lastSolar} MW_DC solar + ${lastBatt} MWh storage.</div>
+                <div class="text-muted">Share of the year a 1&nbsp;MW baseload is met using ${lastSolar} MW_DC solar + ${lastBatt} MWh storage.</div>
+                ${buildCountryLineFor(row)}
              </div>`;
                 capacityPopup.setLatLng([row.latitude, row.longitude]).setContent(content).openOn(map);
             });
@@ -966,10 +997,11 @@ export function updatePopulationPolygons(popData, geojson, { overlayMode = 'none
                 const lcoeLine = overlayMode === 'lcoe' && popRow && Number.isFinite(popRow.lcoe)
                     ? `<div>LCOE: ${formatCurrency(popRow.lcoe, 0)}/MWh</div>` : '';
                 const cfLine = cfVal != null ? `<div>Capacity factor: ${(cfVal * 100).toFixed(1)}%</div>` : '';
-                const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">Population: ${formatNumber(popVal, 0)}</div>
                     ${lcoeLine}
                     ${cfLine}
+                    ${buildCountryLineFor(popRow)}
                  </div>`;
                 const sharedPopup = L.popup({
                     closeButton: false,
@@ -1063,7 +1095,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
 
     const formatCapacityLines = (cap) => {
         if (!cap || !selectedFuelSet.size) {
-            return baseLayer === 'plants' ? '<div class="mt-1 text-slate-500">No installed capacity for the selected fuels.</div>' : '';
+            return baseLayer === 'plants' ? '<div class="mt-1 text-muted">No installed capacity for the selected fuels.</div>' : '';
         }
         const lines = [];
         selectedFuelSet.forEach(fuel => {
@@ -1073,9 +1105,9 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             }
         });
         if (!lines.length) {
-            return baseLayer === 'plants' ? '<div class="mt-1 text-slate-500">No installed capacity for the selected fuels.</div>' : '';
+            return baseLayer === 'plants' ? '<div class="mt-1 text-muted">No installed capacity for the selected fuels.</div>' : '';
         }
-        return `<div class="mt-1 text-slate-500">Installed capacity<br>${lines.join('')}</div>`;
+        return `<div class="mt-1 text-muted">Installed capacity<br>${lines.join('')}</div>`;
     };
 
     const selectedFuelSet = new Set((selectedFuels && selectedFuels.length ? selectedFuels : []).map(f => f.toLowerCase()));
@@ -1193,9 +1225,9 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
         const demandTwh = demandVal / 1e9; // Convert kWh to TWh
 
         const populationLine = baseLayer === 'population'
-            ? `<div class="mt-1 text-slate-400">Population: ${formatNumber(d.population_2020 || 0, 0)}</div>`
+            ? `<div class="mt-1 text-muted">Population: ${formatNumber(d.population_2020 || 0, 0)}</div>`
             : baseLayer === 'electricity'
-                ? `<div class="mt-1 text-slate-400">Annual Demand: ${demandTwh.toFixed(2)} TWh</div>`
+                ? `<div class="mt-1 text-muted">Annual Demand: ${demandTwh.toFixed(2)} TWh</div>`
                 : '';
 
         const shouldShowHitMarker = true; // Always allow hover for tooltip
@@ -1244,7 +1276,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
                         }
                     }
                     const dieselLines = buildDieselBackupLines(overlayData, formatCurrency).join('');
-                    content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">${valueLine}</div>
                     <div>${buildLcoeConfigLine(overlayData)}</div>
                     ${dieselLines}
@@ -1253,7 +1285,7 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
                     ${capacityLines}
                  </div>`;
                 } else if (overlayMode === 'cf' && overlayData) {
-                    content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">CF: ${(overlayData.annual_cf * 100).toFixed(1)}%</div>
                     ${populationLine}
                     ${capacityLines}
@@ -1266,11 +1298,11 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
                     if (hasData) {
                         const val = relData.avg_reliability_access_only !== undefined ? relData.avg_reliability_access_only : relData.avg_reliability;
                         metricLine = `<div class="font-semibold text-white">Grid Reliability: ${val.toFixed(1)}%</div>
-                                      <div class="text-[10px] text-slate-400">Share of time the local grid is operational</div>`;
+                                      <div class="text-[10px] text-muted">Share of time the local grid is operational</div>`;
                     } else {
-                        metricLine = `<div class="font-semibold text-slate-400">Grid Reliability: No data available</div>`;
+                        metricLine = `<div class="font-semibold text-muted">Grid Reliability: No data available</div>`;
                     }
-                    content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     ${metricLine}
                     ${populationLine}
                  </div>`;
@@ -1291,32 +1323,32 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
                 if (currentAccessMetric === 'no_access_pop') {
                     const popNoAccess = (relData.total_pop_reliability || 0) * (relData.pct_no_access || 0);
                     metricLine = `<div class="font-semibold">Without Access: ${(popNoAccess / 1e6).toFixed(2)} million</div>
-                                   <div class="text-slate-400 text-[10px]">Percentage: ${noAccessVal}</div>`;
+                                   <div class="text-muted text-[10px]">Percentage: ${noAccessVal}</div>`;
                 } else if (currentAccessMetric === 'no_access') {
                     metricLine = `<div class="font-semibold">No Access: ${noAccessVal}</div>
-                                           <div class="text-slate-400 text-[10px]">Grid Reliability (connected): ${relVal}</div>`;
+                                           <div class="text-muted text-[10px]">Grid Reliability (connected): ${relVal}</div>`;
                 } else {
                     metricLine = `<div class="font-semibold">Grid Reliability: ${relVal}</div>
-                                           <div class="text-slate-400 text-[10px]">No Access: ${noAccessVal}</div>`;
+                                           <div class="text-muted text-[10px]">No Access: ${noAccessVal}</div>`;
                         }
                     } else {
                         metricLine = `<div class="font-semibold">Average Grid Uptime: No Data</div>`;
                     }
 
-                    content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     ${metricLine}
-                    <div class="text-slate-400">HREA Data Available: ${hreaCovered}</div>
+                    <div class="text-muted">HREA Data Available: ${hreaCovered}</div>
                     ${populationLine}
                     ${capacityLines}
                  </div>`;
                 } else {
-                    const baseInfo = populationLine || '<div class="mt-1 text-slate-400">Installed capacity summary:</div>';
-                    content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                    const baseInfo = populationLine || '<div class="mt-1 text-muted">Installed capacity summary:</div>';
+                    content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     ${baseInfo}
                     ${capacityLines}
                  </div>`;
                 }
-                sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
+                sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(appendCountryLine(content, d)).openOn(map);
             });
 
             marker.on('mouseout', () => {
@@ -1369,11 +1401,11 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
             });
             marker.on('mouseover', () => {
                 const cap = formatNumber(baseCapacity, 0);
-                const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">${plant.plant_name || 'Power plant'}</div>
                     <div>${plant.fuel_group.toUpperCase()} • ${cap} MW</div>
-                    <div class="text-slate-300">${capitalizeWord(plant.status)}</div>
-                    <div class="text-slate-400">${plant.country || 'Unknown'}</div>
+                    <div class="text-muted">${capitalizeWord(plant.status)}</div>
+                    <div class="text-muted">${plant.country || 'Unknown'}</div>
                  </div>`;
                 plantPopup.setLatLng([plant.latitude, plant.longitude]).setContent(content).openOn(map);
             });
@@ -1586,7 +1618,7 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
     const onHover = (e, d) => {
         const content = buildSupplyTooltipHtml(d, overlayMode, potentialState);
         if (content && supplyPopup) {
-            supplyPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(supplyMap);
+            supplyPopup.setLatLng([d.latitude, d.longitude]).setContent(appendCountryLine(content, d)).openOn(supplyMap);
         }
         lastSupplyHoverRow = d;
         syncHoverToDemand(d);
@@ -1790,8 +1822,9 @@ export function updatePopulationGeo(popData, geojson, { overlayMode = 'none', cf
             const key = Number.isFinite(lat) && Number.isFinite(lon) ? roundedKey(lat, lon) : null;
             const popVal = key ? popByCoord.get(key) || 0 : 0;
             lyr.on('mouseover', (e) => {
-                const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">Population: ${formatNumber(popVal, 0)}</div>
+                    ${buildCountryLineFor(props)}
                  </div>`;
                 sharedPopup.setLatLng(e.latlng).setContent(content).openOn(map);
             });
@@ -1932,19 +1965,20 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
                 mainLine = 'No demand data available';
             } else if (isMultiple) {
                 mainLine = `Solar Potential / Demand: ${ratio !== null ? `${formatNumber(ratio, 2)}×` : '--'}`;
-                demandLine = `<div class="text-slate-300">Demand: ${demandTwh ? `${formatNumber(demandTwh, 2)} TWh/yr` : '0 TWh/yr'}</div>`;
+                demandLine = `<div class="text-muted">Demand: ${demandTwh ? `${formatNumber(demandTwh, 2)} TWh/yr` : '0 TWh/yr'}</div>`;
             } else {
                 mainLine = `Solar Generation Potential: ${formatNumber(total, 2)} TWh/yr`;
             }
             const showBreakdown = !noData && (rooftop > 0 || ground > 0);
             const breakdownLine = showBreakdown
-                ? `<div class="text-slate-300">Ground-mount: ${formatNumber(ground, 2)} TWh/yr • Rooftop: ${formatNumber(rooftop, 2)} TWh/yr</div>`
+                ? `<div class="text-muted">Ground-mount: ${formatNumber(ground, 2)} TWh/yr • Rooftop: ${formatNumber(rooftop, 2)} TWh/yr</div>`
                 : '';
-            const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+            const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                 <div class="font-semibold">${mainLine}</div>
                 ${demandLine}
                 ${breakdownLine}
-                <div class="text-slate-300">${getPotentialLevelLabel(level)} • 40 MW/km² ground, 100 MW/km² rooftop</div>
+                <div class="text-muted">${getPotentialLevelLabel(level)} • 40 MW/km² ground, 100 MW/km² rooftop</div>
+                ${buildCountryLineFor(d)}
             </div>`;
             sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
         });
@@ -2084,11 +2118,12 @@ ${distanceLine}`;
                 ? `LCOE: ${Number.isFinite(d.lcoe) ? formatCurrency(d.lcoe) : '--'}/MWh`
                 : `LCOE: ${Number.isFinite(d.maxConfigLcoe) ? `>${formatCurrency(d.maxConfigLcoe)}` : '--'}/MWh`;
             const dieselLines = buildDieselBackupLines(d, formatCurrency).join('');
-            const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+            const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                 <div class="font-semibold">${valueLine}</div>
                 <div>${buildLcoeConfigLine(d)}</div>
                 ${dieselLines}
                 ${infoLines}
+                ${buildCountryLineFor(d)}
              </div>`;
             sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
         });
@@ -2185,12 +2220,13 @@ export function updateCfMap(cfData, options = {}) {
             }
 
             const dieselLines = buildDieselBackupLines(d, formatCurrency).join('');
-            const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+            const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                 <div class="font-semibold">CF: ${meetsTarget ? formatFirmCfText(d) : '--'}</div>
                 <div>Solar ${d.solar_gw} MW_DC | Battery ${d.batt_gwh} MWh</div>
                 <div>LCOE: ${formatCurrency(d.lcoe)}/MWh</div>
                 ${dieselLines}
                 ${infoLines}
+                ${buildCountryLineFor(d)}
              </div>`;
             sharedPopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
         });
@@ -2517,22 +2553,22 @@ function renderSampleVoronoi(mapPoints, locations) {
             if (!samplePopup) return;
             let content;
             if (d.isNA || !Number.isFinite(d.solarShare)) {
-                content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">No data</div>
-                    <div class="text-[11px] text-slate-300">No dispatch data for this point at this hour.</div>
+                    <div class="text-[11px] text-muted">No dispatch data for this point at this hour.</div>
                 </div>`;
             } else {
                 const solar = Number.isFinite(d.solarShare) ? (d.solarShare * 100).toFixed(1) : '--';
                 const battery = Number.isFinite(d.batteryShare) ? (d.batteryShare * 100).toFixed(1) : '--';
                 const other = Number.isFinite(d.otherShare) ? (d.otherShare * 100).toFixed(1) : '--';
-                content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs">
+                content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
                     <div class="font-semibold">Generation mix</div>
-                    <div class="text-[11px] text-slate-300">Solar: ${solar}%</div>
-                    <div class="text-[11px] text-slate-300">Battery: ${battery}%</div>
-                    <div class="text-[11px] text-slate-300">Other: ${other}%</div>
+                    <div class="text-[11px] text-muted">Solar: ${solar}%</div>
+                    <div class="text-[11px] text-muted">Battery: ${battery}%</div>
+                    <div class="text-[11px] text-muted">Other: ${other}%</div>
                 </div>`;
             }
-            samplePopup.setLatLng([d.latitude, d.longitude]).setContent(content).openOn(map);
+            samplePopup.setLatLng([d.latitude, d.longitude]).setContent(appendCountryLine(content, d)).openOn(map);
         })
         .on("mouseout", function () {
             clearHoverRim(this);

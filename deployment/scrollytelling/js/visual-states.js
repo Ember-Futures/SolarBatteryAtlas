@@ -157,7 +157,7 @@ export const visualStates = {
         },
         label: {
             title: 'Cost of 100% Uptime',
-            subtitle: 'Solar + battery + cheap diesel back-up for the final gap'
+            subtitle: 'Solar + battery + cheap least-cost (gas/diesel) back-up for the final gap'
         }
     },
 

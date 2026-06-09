@@ -7,21 +7,23 @@ import {
     loadPvoutPotentialCsv,
     loadVoronoiWaccCsv,
     loadVoronoiLocalCapexCsv,
-    loadVoronoiDieselCsv
+    loadVoronoiDieselCsv,
+    loadVoronoiGasCsv,
+    loadVoronoiOverlappingCountriesCsv
 } from './data.js';
 import {
     initMap, updateMap, updatePopulationPolygons, updatePopulationGeo,
     updateLcoeMap, updateCfMap, updateMapWithSampleFrame,
     setSampleLocationClickHandler, capitalRecoveryFactor, updatePopulationSimple,
     initSubsetMap, renderSubsetMap, subsetMap, setAccessMetric, updatePotentialMap,
-    updateSupplyMap, setDualMapMode, ensureWorldGeoJsonLoaded
+    updateSupplyMap, setDualMapMode, ensureWorldGeoJsonLoaded, setCellCountries
 } from './map.js';
 import { initSampleDays, loadSampleWeekData, cleanupSampleDays } from './samples.js';
 import {
     capitalizeWord, formatNumber, formatCurrency, coordKey, roundedKey,
     haversineKm, updateToggleUI, capitalRecoveryFactor as crf, levelizedGrowthMultiplier
 } from './utils.js';
-import { ALL_FUELS, FUEL_COLORS, TX_WACC, TX_LIFE, BASE_LOAD_MW, DIESEL_THERMAL_KWH_PER_LITER, DIESEL_PRICE_FLOOR_USD_PER_LITER, LCOE_NO_DATA_COLOR, VIEW_MODE_EXPLANATIONS, CF_COLOR_SCALE, POTENTIAL_MULTIPLE_BUCKETS, FEATURE_WORKER_LCOE } from './constants.js';
+import { ALL_FUELS, FUEL_COLORS, TX_WACC, TX_LIFE, BASE_LOAD_MW, DIESEL_THERMAL_KWH_PER_LITER, DIESEL_PRICE_FLOOR_USD_PER_LITER, MMBTU_PER_MWH, LCOE_NO_DATA_COLOR, VIEW_MODE_EXPLANATIONS, CF_COLOR_SCALE, POTENTIAL_MULTIPLE_BUCKETS, FEATURE_WORKER_LCOE } from './constants.js';
 import { createSharedPopup, buildPlantTooltip } from './tooltip.js';
 import { initTour } from './tour.js';
 
@@ -65,6 +67,9 @@ let localCapexCacheYear = null;
 let dieselDataLoaded = false;
 let dieselMap = new Map(); // location_id -> local diesel backup pricing
 let dieselPriceMode = 'local'; // 'global' or 'local' — source of diesel assumptions
+let gasDataLoaded = false;
+let gasMap = new Map(); // location_id -> regional wholesale gas pricing (IGU 2024)
+let gasPriceMode = 'local'; // 'global' or 'local' — source of gas assumptions
 
 // State for population view overlay
 let populationChartCumulative = true;
@@ -365,6 +370,43 @@ async function ensureDieselDataLoaded() {
     }
 }
 
+async function ensureGasDataLoaded() {
+    if (gasDataLoaded) return true;
+    try {
+        loadingStatus.textContent = 'Loading gas backup pricing...';
+        loading.classList.remove('hidden');
+
+        const data = await loadVoronoiGasCsv();
+        gasMap = new Map();
+        data.forEach(row => {
+            if (!Number.isFinite(row.location_id)) return;
+            const price = Number.isFinite(row.gas_2024_usd_per_mmbtu) ? row.gas_2024_usd_per_mmbtu : null;
+            gasMap.set(row.location_id, {
+                available: Boolean(row.gas_available) && Number.isFinite(price),
+                price,
+                rawPrice: price,
+                sourceYear: 2024,
+                sourceType: row.gas_2024_source || null,
+                sourceDistanceKm: row.gas_2024_distance_km,
+                sourceIso3: row.gas_2024_iso3 || null,
+                sourceCountry: row.gas_2024_country || null,
+                country_iso3: row.country_iso3 || null,
+                country_name: row.country_name || null
+            });
+        });
+        gasDataLoaded = true;
+
+        loading.classList.add('hidden');
+        return true;
+    } catch (err) {
+        console.error('Gas price load failed:', err);
+        gasMap = new Map();
+        gasDataLoaded = false;
+        loading.classList.add('hidden');
+        return false;
+    }
+}
+
 // Load all population-mode data (called when switching to population view)
 async function ensurePopulationModeDataLoaded() {
     const results = await Promise.all([
@@ -414,13 +456,19 @@ let lcoeParams = {
     wacc: 0.07,
     ilr: 1.3,
     targetCf: 0.90,
-    includeDieselBackup: false,
+    includeDieselBackup: false, // master "add backup" flag; each region then picks the cheaper of diesel vs gas
     dieselBackupMode: 'min-solar',
     dieselCapex: 300,
     dieselEfficiency: 0.35,
     dieselLife: 20,
     dieselPrice: 1.20, // $/liter (used when dieselPriceMode === 'global')
-    dieselPriceMode: 'local' // 'global' or 'local' — mirrored from module-level dieselPriceMode for the worker payload
+    dieselPriceMode: 'local', // 'global' or 'local' — mirrored from module-level dieselPriceMode for the worker payload
+    // OCGT gas backup — competes with diesel where a regional wholesale price exists (IGU 2024).
+    gasCapex: 800,         // $/kW
+    gasEfficiency: 0.35,   // thermal efficiency (conservative; modern OCGT ~38-42%)
+    gasLife: 25,           // years
+    gasPrice: 4.88,        // $/MMBtu (used when gasPriceMode === 'global'; default = IGU 2024 world avg)
+    gasPriceMode: 'local'  // 'global' or 'local' — mirrored from module-level gasPriceMode for the worker payload
 };
 let lcoeCostMultipliers = { solar: 1, battery: 1 };
 let lcoeTimeYear = new Date().getFullYear();
@@ -534,6 +582,13 @@ const dieselLifeInput = document.getElementById('diesel-life');
 const dieselPriceInput = document.getElementById('diesel-price');
 const dieselSourceWrapper = document.getElementById('diesel-source-wrapper');
 const dieselGlobalInputs = document.getElementById('diesel-global-inputs');
+const gasSourceWrapper = document.getElementById('gas-source-wrapper');
+const gasGlobalInputs = document.getElementById('gas-global-inputs');
+const gasCapexInput = document.getElementById('gas-capex');
+const gasEfficiencyInput = document.getElementById('gas-efficiency');
+const gasLifeInput = document.getElementById('gas-life');
+const gasPriceInput = document.getElementById('gas-price');
+const gasSourceButtons = document.querySelectorAll('#gas-source-toggle button');
 const capexGlobalInputs = document.getElementById('capex-global-inputs');
 const waccGlobalInputs = document.getElementById('wacc-global-inputs');
 const targetCfBackupNote = document.getElementById('target-cf-backup-note');
@@ -542,6 +597,11 @@ const lcoeTimeYearLabel = document.getElementById('lcoe-time-year');
 const lcoeTimeSolarLabel = document.getElementById('lcoe-time-solar');
 const lcoeTimeBatteryLabel = document.getElementById('lcoe-time-battery');
 const lcoeTimePlayBtn = document.getElementById('lcoe-time-play');
+const popLcoeTimeSlider = document.getElementById('pop-lcoe-time-slider');
+const popLcoeTimeYearLabel = document.getElementById('pop-lcoe-time-year');
+const popLcoeTimeSolarLabel = document.getElementById('pop-lcoe-time-solar');
+const popLcoeTimeBatteryLabel = document.getElementById('pop-lcoe-time-battery');
+const popLcoeTimePlayBtn = document.getElementById('pop-lcoe-time-play');
 const lcoeTargetModeButtons = document.querySelectorAll('#lcoe-target-mode-toggle button');
 const waccSourceButtons = document.querySelectorAll('#wacc-source-toggle button');
 const popWaccSourceButtons = document.querySelectorAll('#pop-wacc-source-toggle button');
@@ -612,6 +672,13 @@ const popCapexGlobalInputs = document.getElementById('pop-capex-global-inputs');
 const popWaccGlobalInputs = document.getElementById('pop-wacc-global-inputs');
 const dieselSourceButtons = document.querySelectorAll('#diesel-source-toggle button');
 const popDieselSourceButtons = document.querySelectorAll('#pop-diesel-source-toggle button');
+const popGasSourceWrapper = document.getElementById('pop-gas-source-wrapper');
+const popGasGlobalInputs = document.getElementById('pop-gas-global-inputs');
+const popGasCapexInput = document.getElementById('pop-gas-capex');
+const popGasEfficiencyInput = document.getElementById('pop-gas-efficiency');
+const popGasLifeInput = document.getElementById('pop-gas-life');
+const popGasPriceInput = document.getElementById('pop-gas-price');
+const popGasSourceButtons = document.querySelectorAll('#pop-gas-source-toggle button');
 const lcoeControls = document.getElementById('lcoe-controls');
 const lcoeTimePanel = document.getElementById('lcoe-time-panel');
 const locationPanel = document.getElementById('location-panel');
@@ -917,6 +984,11 @@ function getDieselInfoForRow(row) {
     return dieselMap.get(row.location_id) || null;
 }
 
+function getGasInfoForRow(row) {
+    if (!gasMap || !gasMap.size) return null;
+    return gasMap.get(row.location_id) || null;
+}
+
 function hydrateLcoeRowContext(row, params) {
     const localWacc = getRowWacc(row);
     row._wacc = localWacc ?? params.wacc;
@@ -934,7 +1006,14 @@ function hydrateLcoeRowContext(row, params) {
     row._dieselSourceCountryName = dieselInfo?.sourceCountry ?? null;
     row._dieselSourceSeriesName = dieselInfo?.sourceSeriesName ?? null;
 
-    return { localWacc: row._wacc, localCapex, dieselInfo };
+    const gasInfo = getGasInfoForRow(row);
+    row._gasAvailable = Boolean(gasInfo?.available);
+    row._gasRawPriceUsdPerMmbtu = gasInfo?.rawPrice ?? gasInfo?.price ?? null;
+    row._gasSourceDistanceKm = gasInfo?.sourceDistanceKm ?? null;
+    row._gasSourceCountryIso3 = gasInfo?.sourceIso3 ?? null;
+    row._gasSourceCountryName = gasInfo?.sourceCountry ?? null;
+
+    return { localWacc: row._wacc, localCapex, dieselInfo, gasInfo };
 }
 
 function computeEffectiveDieselPriceUsdPerLiter(dieselInfo, params) {
@@ -968,6 +1047,28 @@ function computeDieselFuelCostPerMwh(dieselPriceUsdPerLiter, params) {
     return (dieselPriceUsdPerLiter * 1000) / (efficiency * DIESEL_THERMAL_KWH_PER_LITER);
 }
 
+function computeEffectiveGasPriceUsdPerMmbtu(gasInfo, params) {
+    const priceMode = params?.gasPriceMode || gasPriceMode;
+    if (priceMode === 'global') {
+        const globalPrice = Number.isFinite(params?.gasPrice) ? params.gasPrice : null;
+        return { rawPrice: globalPrice, effectivePrice: globalPrice };
+    }
+    const rawPrice = Number.isFinite(gasInfo?.rawPrice ?? gasInfo?.price)
+        ? (gasInfo?.rawPrice ?? gasInfo?.price)
+        : null;
+    return { rawPrice, effectivePrice: rawPrice };
+}
+
+function computeGasFuelCostPerMwh(gasPriceUsdPerMmbtu, params) {
+    const efficiency = Number.isFinite(params.gasEfficiency) && params.gasEfficiency > 0
+        ? params.gasEfficiency
+        : null;
+    if (!Number.isFinite(gasPriceUsdPerMmbtu) || !efficiency) {
+        return Infinity;
+    }
+    return (gasPriceUsdPerMmbtu * MMBTU_PER_MWH) / efficiency;
+}
+
 function computeLcoeMetrics(row, params) {
     const solarKw = Number.isFinite(row._solarKw) ? row._solarKw : row.solar_gw * 1_000_000;
     const batteryKwh = Number.isFinite(row._batteryKwh) ? row._batteryKwh : row.batt_gwh * 1_000_000;
@@ -998,6 +1099,10 @@ function computeLcoeMetrics(row, params) {
     // PV degradation reduces the renewable energy denominator (diesel-firmed case below overrides).
     annualEnergyMWh *= levelizedGrowthMultiplier(-(params.solarDegradationPct || 0), wacc, params.solarLife);
 
+    // Backup display/output — price BOTH diesel and gas (where available), keep the cheaper.
+    let backupFuel = null;
+    let backupLcoeAdder = 0;
+    let backupEnergyMwh = 0;
     let dieselPriceUsdPerLiter = null;
     let dieselSourceYear = null;
     let dieselSourceType = null;
@@ -1005,13 +1110,45 @@ function computeLcoeMetrics(row, params) {
     let dieselSourceCountryIso3 = null;
     let dieselSourceCountryName = null;
     let dieselSourceSeriesName = null;
-    let dieselEnergyMwh = 0;
-    let dieselFuelCostPerMwh = 0;
-    let dieselCapexAnnual = 0;
-    let dieselFuelAnnual = 0;
-    let dieselLcoeAdder = 0;
+    let gasAvailable = false;
+    let gasPriceUsdPerMmbtu = null;
+    let gasSourceCountryIso3 = null;
+    let gasSourceCountryName = null;
+    let gasSourceDistanceKm = null;
+
+    const makeResult = (lcoeValue) => ({
+        lcoe: lcoeValue,
+        annual_cost_usd: annualCost,
+        annual_energy_mwh: annualEnergyMWh,
+        firm_cf: firmCf,
+        solar_share_cf: solarShareCf,
+        diesel_share_cf: dieselShareCf,
+        backup_share_cf: dieselShareCf,
+        backup_fuel: backupFuel,
+        backup_lcoe_adder: backupLcoeAdder,
+        backup_energy_mwh: backupEnergyMwh,
+        diesel_lcoe_adder: backupLcoeAdder,
+        diesel_energy_mwh: backupEnergyMwh,
+        diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
+        diesel_source_year: dieselSourceYear,
+        diesel_source_type: dieselSourceType,
+        diesel_source_distance_km: dieselSourceDistanceKm,
+        diesel_source_country_iso3: dieselSourceCountryIso3,
+        diesel_source_country_name: dieselSourceCountryName,
+        diesel_source_series_name: dieselSourceSeriesName,
+        gas_available: gasAvailable,
+        gas_price_usd_per_mmbtu: gasPriceUsdPerMmbtu,
+        gas_source_country_iso3: gasSourceCountryIso3,
+        gas_source_country_name: gasSourceCountryName,
+        gas_source_distance_km: gasSourceDistanceKm,
+        includeDieselBackup
+    });
 
     if (includeDieselBackup) {
+        annualEnergyMWh = 8760 * BASE_LOAD_MW;
+        backupEnergyMwh = dieselShareCf * annualEnergyMWh;
+
+        // Diesel candidate.
         const dieselPricing = computeEffectiveDieselPriceUsdPerLiter({
             rawPrice: row._dieselRawPriceUsdPerLiter,
             sourceType: row._dieselSourceType
@@ -1023,57 +1160,47 @@ function computeLcoeMetrics(row, params) {
         dieselSourceCountryIso3 = row._dieselSourceCountryIso3 ?? null;
         dieselSourceCountryName = row._dieselSourceCountryName ?? null;
         dieselSourceSeriesName = row._dieselSourceSeriesName ?? null;
-        annualEnergyMWh = 8760 * BASE_LOAD_MW;
-        dieselEnergyMwh = dieselShareCf * annualEnergyMWh;
-        dieselFuelCostPerMwh = computeDieselFuelCostPerMwh(dieselPriceUsdPerLiter, params);
-        const dieselCapex = BASE_LOAD_MW * 1000 * params.dieselCapex;
-        dieselCapexAnnual = dieselCapex * capitalRecoveryFactor(wacc, params.dieselLife);
+        const dieselFuelCostPerMwh = computeDieselFuelCostPerMwh(dieselPriceUsdPerLiter, params);
+        const dieselCapexAnnual = (BASE_LOAD_MW * 1000 * params.dieselCapex) * capitalRecoveryFactor(wacc, params.dieselLife);
+        const dieselTotalAnnual = Number.isFinite(dieselFuelCostPerMwh)
+            ? dieselCapexAnnual + backupEnergyMwh * dieselFuelCostPerMwh
+            : Infinity;
 
-        if (!Number.isFinite(dieselFuelCostPerMwh)) {
-            return {
-                lcoe: Infinity,
-                annual_cost_usd: Infinity,
-                annual_energy_mwh: annualEnergyMWh,
-                firm_cf: firmCf,
-                solar_share_cf: solarShareCf,
-                diesel_share_cf: dieselShareCf,
-                diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-                diesel_source_year: dieselSourceYear,
-                diesel_source_type: dieselSourceType,
-                diesel_source_distance_km: dieselSourceDistanceKm,
-                diesel_source_country_iso3: dieselSourceCountryIso3,
-                diesel_source_country_name: dieselSourceCountryName,
-                diesel_source_series_name: dieselSourceSeriesName,
-                diesel_energy_mwh: dieselEnergyMwh,
-                diesel_lcoe_adder: Infinity,
-                includeDieselBackup
-            };
+        // Gas (OCGT) candidate — only where a regional wholesale price exists.
+        gasAvailable = Boolean(row._gasAvailable);
+        let gasTotalAnnual = Infinity;
+        if (gasAvailable) {
+            const gasPricing = computeEffectiveGasPriceUsdPerMmbtu({ rawPrice: row._gasRawPriceUsdPerMmbtu }, params);
+            const gasFuelCostPerMwh = computeGasFuelCostPerMwh(gasPricing.effectivePrice, params);
+            if (Number.isFinite(gasFuelCostPerMwh)) {
+                const gasCapexAnnual = (BASE_LOAD_MW * 1000 * params.gasCapex) * capitalRecoveryFactor(wacc, params.gasLife);
+                gasTotalAnnual = gasCapexAnnual + backupEnergyMwh * gasFuelCostPerMwh;
+                gasPriceUsdPerMmbtu = gasPricing.effectivePrice;
+                gasSourceCountryIso3 = row._gasSourceCountryIso3 ?? null;
+                gasSourceCountryName = row._gasSourceCountryName ?? null;
+                gasSourceDistanceKm = row._gasSourceDistanceKm ?? null;
+            }
         }
 
-        dieselFuelAnnual = dieselEnergyMwh * dieselFuelCostPerMwh;
-        annualCost += dieselCapexAnnual + dieselFuelAnnual;
-        dieselLcoeAdder = annualEnergyMWh > 0 ? (dieselCapexAnnual + dieselFuelAnnual) / annualEnergyMWh : Infinity;
+        let backupTotalAnnual;
+        if (gasTotalAnnual < dieselTotalAnnual) {
+            backupFuel = 'gas';
+            backupTotalAnnual = gasTotalAnnual;
+        } else {
+            backupFuel = 'diesel';
+            backupTotalAnnual = dieselTotalAnnual;
+        }
+
+        if (!Number.isFinite(backupTotalAnnual)) {
+            backupLcoeAdder = Infinity;
+            annualCost = Infinity;
+            return makeResult(Infinity);
+        }
+        annualCost += backupTotalAnnual;
+        backupLcoeAdder = annualEnergyMWh > 0 ? backupTotalAnnual / annualEnergyMWh : Infinity;
     }
 
-    const lcoe = annualEnergyMWh > 0 ? annualCost / annualEnergyMWh : Infinity;
-    return {
-        lcoe,
-        annual_cost_usd: annualCost,
-        annual_energy_mwh: annualEnergyMWh,
-        firm_cf: firmCf,
-        solar_share_cf: solarShareCf,
-        diesel_share_cf: dieselShareCf,
-        diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-        diesel_source_year: dieselSourceYear,
-        diesel_source_type: dieselSourceType,
-        diesel_source_distance_km: dieselSourceDistanceKm,
-        diesel_source_country_iso3: dieselSourceCountryIso3,
-        diesel_source_country_name: dieselSourceCountryName,
-        diesel_source_series_name: dieselSourceSeriesName,
-        diesel_energy_mwh: dieselEnergyMwh,
-        diesel_lcoe_adder: dieselLcoeAdder,
-        includeDieselBackup
-    };
+    return makeResult(annualEnergyMWh > 0 ? annualCost / annualEnergyMWh : Infinity);
 }
 
 function computeConfigLcoe(row, params) {
@@ -1086,6 +1213,7 @@ function precomputeLcoePerLocation(sampleRow, params) {
     const localWacc = getRowWacc(sampleRow);
     const localCapex = getRowCapex(sampleRow);
     const dieselInfo = getDieselInfoForRow(sampleRow);
+    const gasInfo = getGasInfoForRow(sampleRow);
     const resolvedWacc = Number.isFinite(localWacc) ? localWacc : params.wacc;
 
     const hasLocalSolar = Number.isFinite(localCapex?.solar);
@@ -1113,6 +1241,11 @@ function precomputeLcoePerLocation(sampleRow, params) {
     let dieselFuelCostPerMwh = 0;
     let dieselCapexAnnual = 0;
     let dieselContext = null;
+    let gasAvailable = false;
+    let gasPricing = null;
+    let gasFuelCostPerMwh = Infinity;
+    let gasCapexAnnual = 0;
+    let gasContext = null;
     if (includeDieselBackup) {
         dieselPricing = computeEffectiveDieselPriceUsdPerLiter({
             rawPrice: dieselInfo?.rawPrice ?? dieselInfo?.price ?? null,
@@ -1130,6 +1263,23 @@ function precomputeLcoePerLocation(sampleRow, params) {
             sourceCountry: dieselInfo?.sourceCountry ?? null,
             sourceSeriesName: dieselInfo?.sourceSeriesName ?? null
         };
+
+        gasAvailable = Boolean(gasInfo?.available);
+        if (gasAvailable) {
+            gasPricing = computeEffectiveGasPriceUsdPerMmbtu({
+                rawPrice: gasInfo?.rawPrice ?? gasInfo?.price ?? null
+            }, params);
+            gasFuelCostPerMwh = computeGasFuelCostPerMwh(gasPricing.effectivePrice, params);
+            const gasCapex = BASE_LOAD_MW * 1000 * params.gasCapex;
+            const gasCrf = capitalRecoveryFactor(resolvedWacc, params.gasLife);
+            gasCapexAnnual = gasCapex * gasCrf;
+            gasContext = {
+                priceUsdPerMmbtu: gasPricing.effectivePrice,
+                sourceIso3: gasInfo?.sourceIso3 ?? null,
+                sourceCountry: gasInfo?.sourceCountry ?? null,
+                sourceDistanceKm: gasInfo?.sourceDistanceKm ?? null
+            };
+        }
     }
 
     return {
@@ -1146,7 +1296,12 @@ function precomputeLcoePerLocation(sampleRow, params) {
         dieselPricing,
         dieselFuelCostPerMwh,
         dieselCapexAnnual,
-        dieselContext
+        dieselContext,
+        gasAvailable,
+        gasPricing,
+        gasFuelCostPerMwh,
+        gasCapexAnnual,
+        gasContext
     };
 }
 
@@ -1172,6 +1327,9 @@ function computeLcoeMetricsFast(row, pre) {
     // PV degradation reduces the renewable energy denominator (diesel-firmed case below overrides).
     annualEnergyMWh *= pre.energyDegradationMult;
 
+    let backupFuel = null;
+    let backupLcoeAdder = 0;
+    let backupEnergyMwh = 0;
     let dieselPriceUsdPerLiter = null;
     let dieselSourceYear = null;
     let dieselSourceType = null;
@@ -1179,58 +1337,25 @@ function computeLcoeMetricsFast(row, pre) {
     let dieselSourceCountryIso3 = null;
     let dieselSourceCountryName = null;
     let dieselSourceSeriesName = null;
-    let dieselEnergyMwh = 0;
-    let dieselLcoeAdder = 0;
+    let gasAvailable = false;
+    let gasPriceUsdPerMmbtu = null;
+    let gasSourceCountryIso3 = null;
+    let gasSourceCountryName = null;
+    let gasSourceDistanceKm = null;
 
-    if (includeDieselBackup) {
-        const dp = pre.dieselPricing;
-        const dc = pre.dieselContext;
-        dieselPriceUsdPerLiter = dp.effectivePrice;
-        dieselSourceYear = dc.sourceYear;
-        dieselSourceType = dc.sourceType;
-        dieselSourceDistanceKm = dc.sourceDistanceKm;
-        dieselSourceCountryIso3 = dc.sourceIso3;
-        dieselSourceCountryName = dc.sourceCountry;
-        dieselSourceSeriesName = dc.sourceSeriesName;
-        annualEnergyMWh = 8760 * BASE_LOAD_MW;
-        dieselEnergyMwh = dieselShareCf * annualEnergyMWh;
-
-        if (!Number.isFinite(pre.dieselFuelCostPerMwh)) {
-            return {
-                lcoe: Infinity,
-                annual_cost_usd: Infinity,
-                annual_energy_mwh: annualEnergyMWh,
-                firm_cf: firmCf,
-                solar_share_cf: solarShareCf,
-                diesel_share_cf: dieselShareCf,
-                diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
-                diesel_source_year: dieselSourceYear,
-                diesel_source_type: dieselSourceType,
-                diesel_source_distance_km: dieselSourceDistanceKm,
-                diesel_source_country_iso3: dieselSourceCountryIso3,
-                diesel_source_country_name: dieselSourceCountryName,
-                diesel_source_series_name: dieselSourceSeriesName,
-                diesel_energy_mwh: dieselEnergyMwh,
-                diesel_lcoe_adder: Infinity,
-                includeDieselBackup
-            };
-        }
-
-        const dieselFuelAnnual = dieselEnergyMwh * pre.dieselFuelCostPerMwh;
-        annualCost += pre.dieselCapexAnnual + dieselFuelAnnual;
-        dieselLcoeAdder = annualEnergyMWh > 0
-            ? (pre.dieselCapexAnnual + dieselFuelAnnual) / annualEnergyMWh
-            : Infinity;
-    }
-
-    const lcoe = annualEnergyMWh > 0 ? annualCost / annualEnergyMWh : Infinity;
-    return {
-        lcoe,
+    const makeResult = (lcoeValue) => ({
+        lcoe: lcoeValue,
         annual_cost_usd: annualCost,
         annual_energy_mwh: annualEnergyMWh,
         firm_cf: firmCf,
         solar_share_cf: solarShareCf,
         diesel_share_cf: dieselShareCf,
+        backup_share_cf: dieselShareCf,
+        backup_fuel: backupFuel,
+        backup_lcoe_adder: backupLcoeAdder,
+        backup_energy_mwh: backupEnergyMwh,
+        diesel_lcoe_adder: backupLcoeAdder,
+        diesel_energy_mwh: backupEnergyMwh,
         diesel_price_usd_per_liter: dieselPriceUsdPerLiter,
         diesel_source_year: dieselSourceYear,
         diesel_source_type: dieselSourceType,
@@ -1238,10 +1363,64 @@ function computeLcoeMetricsFast(row, pre) {
         diesel_source_country_iso3: dieselSourceCountryIso3,
         diesel_source_country_name: dieselSourceCountryName,
         diesel_source_series_name: dieselSourceSeriesName,
-        diesel_energy_mwh: dieselEnergyMwh,
-        diesel_lcoe_adder: dieselLcoeAdder,
+        gas_available: gasAvailable,
+        gas_price_usd_per_mmbtu: gasPriceUsdPerMmbtu,
+        gas_source_country_iso3: gasSourceCountryIso3,
+        gas_source_country_name: gasSourceCountryName,
+        gas_source_distance_km: gasSourceDistanceKm,
         includeDieselBackup
-    };
+    });
+
+    if (includeDieselBackup) {
+        annualEnergyMWh = 8760 * BASE_LOAD_MW;
+        backupEnergyMwh = dieselShareCf * annualEnergyMWh;
+
+        const dc = pre.dieselContext;
+        dieselPriceUsdPerLiter = pre.dieselPricing ? pre.dieselPricing.effectivePrice : null;
+        if (dc) {
+            dieselSourceYear = dc.sourceYear;
+            dieselSourceType = dc.sourceType;
+            dieselSourceDistanceKm = dc.sourceDistanceKm;
+            dieselSourceCountryIso3 = dc.sourceIso3;
+            dieselSourceCountryName = dc.sourceCountry;
+            dieselSourceSeriesName = dc.sourceSeriesName;
+        }
+        const dieselTotalAnnual = Number.isFinite(pre.dieselFuelCostPerMwh)
+            ? pre.dieselCapexAnnual + backupEnergyMwh * pre.dieselFuelCostPerMwh
+            : Infinity;
+
+        gasAvailable = Boolean(pre.gasAvailable);
+        let gasTotalAnnual = Infinity;
+        if (gasAvailable && Number.isFinite(pre.gasFuelCostPerMwh)) {
+            gasTotalAnnual = pre.gasCapexAnnual + backupEnergyMwh * pre.gasFuelCostPerMwh;
+            const gc = pre.gasContext;
+            if (gc) {
+                gasPriceUsdPerMmbtu = gc.priceUsdPerMmbtu;
+                gasSourceCountryIso3 = gc.sourceIso3;
+                gasSourceCountryName = gc.sourceCountry;
+                gasSourceDistanceKm = gc.sourceDistanceKm;
+            }
+        }
+
+        let backupTotalAnnual;
+        if (gasTotalAnnual < dieselTotalAnnual) {
+            backupFuel = 'gas';
+            backupTotalAnnual = gasTotalAnnual;
+        } else {
+            backupFuel = 'diesel';
+            backupTotalAnnual = dieselTotalAnnual;
+        }
+
+        if (!Number.isFinite(backupTotalAnnual)) {
+            backupLcoeAdder = Infinity;
+            annualCost = Infinity;
+            return makeResult(Infinity);
+        }
+        annualCost += backupTotalAnnual;
+        backupLcoeAdder = annualEnergyMWh > 0 ? backupTotalAnnual / annualEnergyMWh : Infinity;
+    }
+
+    return makeResult(annualEnergyMWh > 0 ? annualCost / annualEnergyMWh : Infinity);
 }
 
 function computeTransmissionMetrics(row, reference, delta) {
@@ -1337,6 +1516,24 @@ function serializeDieselMap() {
     return out;
 }
 
+function serializeGasMap() {
+    if (!gasMap || !gasMap.size) return null;
+    const out = {};
+    gasMap.forEach((entry, locationId) => {
+        if (!entry) return;
+        out[locationId] = {
+            available: Boolean(entry.available),
+            price: entry.price,
+            rawPrice: Number.isFinite(entry.rawPrice ?? entry.price) ? (entry.rawPrice ?? entry.price) : null,
+            sourceType: entry.sourceType ?? null,
+            sourceDistanceKm: entry.sourceDistanceKm ?? null,
+            sourceIso3: entry.sourceIso3 ?? null,
+            sourceCountry: entry.sourceCountry ?? null
+        };
+    });
+    return out;
+}
+
 function postLcoeWorkerMessage(type, payload, timeoutMs = 12000) {
     const worker = getLcoeWorker();
     if (!worker) {
@@ -1379,7 +1576,7 @@ function buildWorkerCacheKey(kind, targetValue, params) {
     return JSON.stringify({
         kind,
         targetValue,
-        mode: { waccMode, capexMode, dieselPriceMode, year: lcoeTimeYear },
+        mode: { waccMode, capexMode, dieselPriceMode, gasPriceMode, year: lcoeTimeYear },
         multipliers: lcoeCostMultipliers,
         params: {
             solarCapex: params.solarCapex,
@@ -1400,7 +1597,12 @@ function buildWorkerCacheKey(kind, targetValue, params) {
             dieselEfficiency: params.dieselEfficiency,
             dieselLife: params.dieselLife,
             dieselPrice: params.dieselPrice,
-            dieselPriceMode: params.dieselPriceMode
+            dieselPriceMode: params.dieselPriceMode,
+            gasCapex: params.gasCapex,
+            gasEfficiency: params.gasEfficiency,
+            gasLife: params.gasLife,
+            gasPrice: params.gasPrice,
+            gasPriceMode: params.gasPriceMode
         }
     });
 }
@@ -1456,7 +1658,8 @@ function scheduleBestLcoeWorkerCompute(key, targetCf, params) {
                 costMultipliers: lcoeCostMultipliers,
                 waccByLocation: serializeWaccMap(),
                 localCapexByLocation: serializeLocalCapexMap(),
-                dieselByLocation: serializeDieselMap()
+                dieselByLocation: serializeDieselMap(),
+                gasByLocation: serializeGasMap()
             };
             const response = await postLcoeWorkerMessage('COMPUTE_BEST_LCOE', payload);
             const results = response?.results || [];
@@ -1483,7 +1686,8 @@ function scheduleCfAtTargetLcoeWorkerCompute(key, targetLcoe, params) {
                 costMultipliers: lcoeCostMultipliers,
                 waccByLocation: serializeWaccMap(),
                 localCapexByLocation: serializeLocalCapexMap(),
-                dieselByLocation: serializeDieselMap()
+                dieselByLocation: serializeDieselMap(),
+                gasByLocation: serializeGasMap()
             };
             const response = await postLcoeWorkerMessage('COMPUTE_CF_AT_TARGET_LCOE', payload);
             const results = response?.results || [];
@@ -1539,10 +1743,16 @@ function applyLcoeTimeYear(year, { lockLegend = true } = {}) {
     lcoeCostMultipliers.battery = interpolateFactor(normalizedYear, LCOE_TIME_ANCHORS.battery);
     resetLocalCapexCache();
 
+    const solarPctLabel = `${Math.round(lcoeCostMultipliers.solar * 100)}%`;
+    const batteryPctLabel = `${Math.round(lcoeCostMultipliers.battery * 100)}%`;
     if (lcoeTimeYearLabel) lcoeTimeYearLabel.textContent = normalizedYear;
-    if (lcoeTimeSolarLabel) lcoeTimeSolarLabel.textContent = `${Math.round(lcoeCostMultipliers.solar * 100)}%`;
-    if (lcoeTimeBatteryLabel) lcoeTimeBatteryLabel.textContent = `${Math.round(lcoeCostMultipliers.battery * 100)}%`;
+    if (lcoeTimeSolarLabel) lcoeTimeSolarLabel.textContent = solarPctLabel;
+    if (lcoeTimeBatteryLabel) lcoeTimeBatteryLabel.textContent = batteryPctLabel;
     if (lcoeTimeSlider) lcoeTimeSlider.value = normalizedYear;
+    if (popLcoeTimeYearLabel) popLcoeTimeYearLabel.textContent = normalizedYear;
+    if (popLcoeTimeSolarLabel) popLcoeTimeSolarLabel.textContent = solarPctLabel;
+    if (popLcoeTimeBatteryLabel) popLcoeTimeBatteryLabel.textContent = batteryPctLabel;
+    if (popLcoeTimeSlider) popLcoeTimeSlider.value = normalizedYear;
 
     if (lockLegend) {
         lcoeTimeLockActive = true;
@@ -1558,6 +1768,27 @@ function stopLcoeTimeAnimation() {
     }
     lcoeTimePlaying = false;
     if (lcoeTimePlayBtn) lcoeTimePlayBtn.textContent = 'Play';
+    if (popLcoeTimePlayBtn) popLcoeTimePlayBtn.textContent = 'Play';
+}
+
+function toggleLcoeTimeAnimation() {
+    if (lcoeTimePlaying) {
+        stopLcoeTimeAnimation();
+        return;
+    }
+    lcoeTimePlaying = true;
+    if (lcoeTimePlayBtn) lcoeTimePlayBtn.textContent = 'Pause';
+    if (popLcoeTimePlayBtn) popLcoeTimePlayBtn.textContent = 'Pause';
+    if (lcoeTimeYear >= 2050) {
+        applyLcoeTimeYear(LCOE_TIME_ANCHORS.baseYear);
+    }
+    lcoeTimeInterval = setInterval(() => {
+        if (lcoeTimeYear >= 2050) {
+            stopLcoeTimeAnimation();
+            return;
+        }
+        applyLcoeTimeYear(lcoeTimeYear + 1);
+    }, 650);
 }
 
 function formatCurrencyLabel(value, decimals = 0) {
@@ -1898,6 +2129,14 @@ function syncLcoeControlValues() {
     setInputValue(popDieselLifeInput, lcoeParams.dieselLife);
     setInputValue(dieselPriceInput, lcoeParams.dieselPrice);
     setInputValue(popDieselPriceInput, lcoeParams.dieselPrice);
+    setInputValue(gasCapexInput, lcoeParams.gasCapex);
+    setInputValue(popGasCapexInput, lcoeParams.gasCapex);
+    setInputValue(gasEfficiencyInput, (lcoeParams.gasEfficiency || 0) * 100);
+    setInputValue(popGasEfficiencyInput, (lcoeParams.gasEfficiency || 0) * 100);
+    setInputValue(gasLifeInput, lcoeParams.gasLife);
+    setInputValue(popGasLifeInput, lcoeParams.gasLife);
+    setInputValue(gasPriceInput, lcoeParams.gasPrice);
+    setInputValue(popGasPriceInput, lcoeParams.gasPrice);
 
     const backupOn = Boolean(lcoeParams.includeDieselBackup);
     const mode = lcoeParams.dieselBackupMode || 'min-solar';
@@ -1907,6 +2146,8 @@ function syncLcoeControlValues() {
     if (popDieselBackupModeGroup) popDieselBackupModeGroup.classList.toggle('hidden', !backupOn);
     if (dieselSourceWrapper) dieselSourceWrapper.classList.toggle('hidden', !backupOn);
     if (popDieselSourceWrapper) popDieselSourceWrapper.classList.toggle('hidden', !backupOn);
+    if (gasSourceWrapper) gasSourceWrapper.classList.toggle('hidden', !backupOn);
+    if (popGasSourceWrapper) popGasSourceWrapper.classList.toggle('hidden', !backupOn);
 
     const showMainBackupNote = backupOn && mode === 'min-solar' && lcoeTargetMode === 'utilization';
     if (targetCfContainer) targetCfContainer.classList.toggle('hidden', lcoeTargetMode !== 'utilization' || (backupOn && mode === 'cheapest-firm'));
@@ -1921,8 +2162,9 @@ function syncLcoeControlValues() {
 
 async function setDieselBackupEnabled(enabled) {
     lcoeParams.includeDieselBackup = Boolean(enabled);
-    if (lcoeParams.includeDieselBackup && dieselPriceMode === 'local') {
-        await ensureDieselDataLoaded();
+    if (lcoeParams.includeDieselBackup) {
+        if (dieselPriceMode === 'local') await ensureDieselDataLoaded();
+        await ensureGasDataLoaded();
     }
     syncLcoeControlValues();
     resetLcoeTimeLegendLock();
@@ -2176,6 +2418,30 @@ function updateDieselSourceToggleUI() {
     updateToggleUI(popDieselSourceButtons, dieselPriceMode, 'mode');
     if (dieselGlobalInputs) dieselGlobalInputs.classList.toggle('hidden', dieselPriceMode === 'local');
     if (popDieselGlobalInputs) popDieselGlobalInputs.classList.toggle('hidden', dieselPriceMode === 'local');
+}
+
+function updateGasSourceToggleUI() {
+    updateToggleUI(gasSourceButtons, gasPriceMode, 'mode');
+    updateToggleUI(popGasSourceButtons, gasPriceMode, 'mode');
+    if (gasGlobalInputs) gasGlobalInputs.classList.toggle('hidden', gasPriceMode === 'local');
+    if (popGasGlobalInputs) popGasGlobalInputs.classList.toggle('hidden', gasPriceMode === 'local');
+}
+
+async function setGasPriceMode(mode) {
+    const normalized = mode === 'global' ? 'global' : 'local';
+    if (gasPriceMode === normalized) return;
+    gasPriceMode = normalized;
+    lcoeParams.gasPriceMode = normalized;
+    updateGasSourceToggleUI();
+    resetLcoeTimeLegendLock();
+    if (lcoeParams.includeDieselBackup) {
+        await ensureGasDataLoaded();
+    }
+    if (currentViewMode === 'population' && populationOverlayMode === 'lcoe') {
+        updatePopulationView();
+    } else {
+        queueLcoeUpdate();
+    }
 }
 
 async function setWaccMode(mode) {
@@ -3794,11 +4060,11 @@ function handleHistogramClick(bucket, metrics, overlayMode, baseLayer) {
                     const name = d.plant_name || 'Power plant';
                     const country = d.country || 'Unknown';
 
-                    const content = `<div class="bg-slate-900 text-white border border-slate-700 px-3 py-2 rounded text-xs max-w-xs pointer-events-none">
+                    const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs pointer-events-none">
                         <div class="font-semibold">${name}</div>
                         <div>${fuel} • ${cap} MW</div>
-                        <div class="text-slate-300">${status}</div>
-                        <div class="text-slate-400">${country}</div>
+                        <div class="text-muted">${status}</div>
+                        <div class="text-muted">${country}</div>
                      </div>`;
 
                     plantPopup.setLatLng(ll).setContent(content).openOn(subsetMap);
@@ -4508,6 +4774,7 @@ async function updatePopulationView() {
         cfData = getSummaryForConfig(currentSolar, currentBatt);
     } else if (overlayMode === 'lcoe') {
         await ensureDieselDataLoaded();
+        await ensureGasDataLoaded();
         syncLcoeControlValues();
         const prepared = prepareLcoeDisplayData();
         if (prepared) {
@@ -4656,6 +4923,16 @@ async function init() {
         if (!Array.isArray(summaryData)) {
             throw new Error("summaryData is not an array! It is: " + typeof summaryData);
         }
+        // Load per-cell country overlaps (small) so every tooltip can show the
+        // country (or countries, for border-straddling cells) the hovered cell
+        // covers. Best-effort: a failure just omits the country line.
+        try {
+            const overlapRows = await loadVoronoiOverlappingCountriesCsv();
+            setCellCountries(new Map(overlapRows.map(r => [r.location_id, r.country_names])));
+        } catch (err) {
+            console.warn('Overlapping-countries data unavailable:', err);
+        }
+
         enrichSummaryRows(summaryData);
         applyBattConstraint(currentSolar);
 
@@ -4680,6 +4957,7 @@ async function init() {
         updateWaccSourceToggleUI();
         updateCapexSourceToggleUI();
         updateDieselSourceToggleUI();
+        updateGasSourceToggleUI();
 
         // Initial View
         updateViewMode('capacity');
@@ -4952,6 +5230,10 @@ function initUIEvents() {
         lcoeParams.dieselCapex = parseFloat(popDieselCapexInput?.value) || 300;
         lcoeParams.dieselEfficiency = (parseFloat(popDieselEfficiencyInput?.value) || 35) / 100;
         lcoeParams.dieselLife = parseInt(popDieselLifeInput?.value, 10) || 20;
+        lcoeParams.gasCapex = parseFloat(popGasCapexInput?.value) || 800;
+        lcoeParams.gasEfficiency = (parseFloat(popGasEfficiencyInput?.value) || 35) / 100;
+        lcoeParams.gasLife = parseInt(popGasLifeInput?.value, 10) || 25;
+        lcoeParams.gasPrice = parseFloat(popGasPriceInput?.value) || 0;
         syncLcoeControlValues();
         resetLcoeTimeLegendLock();
 
@@ -4964,11 +5246,20 @@ function initUIEvents() {
     [popSolarCapexInput, popBatteryCapexInput, popSolarOpexInput, popBatteryOpexInput,
         popSolarDegradationInput, popSolarOpexEscalationInput, popBatteryOpexEscalationInput,
         popSolarLifeInput, popBatteryLifeInput, popWaccInput, popIlrInput,
-        popDieselCapexInput, popDieselEfficiencyInput, popDieselLifeInput].forEach(input => {
+        popDieselCapexInput, popDieselEfficiencyInput, popDieselLifeInput,
+        popGasCapexInput, popGasEfficiencyInput, popGasLifeInput, popGasPriceInput].forEach(input => {
             if (input) {
                 input.addEventListener('change', updatePopLcoeParams);
             }
         });
+
+    if (popGasSourceButtons && popGasSourceButtons.length) {
+        popGasSourceButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                setGasPriceMode(btn.dataset.mode);
+            });
+        });
+    }
 
     if (popDieselBackupInput) {
         popDieselBackupInput.addEventListener('change', (e) => {
@@ -5053,24 +5344,21 @@ function initUIEvents() {
     }
 
     if (lcoeTimePlayBtn) {
-        lcoeTimePlayBtn.addEventListener('click', () => {
-            if (lcoeTimePlaying) {
-                stopLcoeTimeAnimation();
-                return;
-            }
-            lcoeTimePlaying = true;
-            lcoeTimePlayBtn.textContent = 'Pause';
-            if (lcoeTimeYear >= 2050) {
-                applyLcoeTimeYear(LCOE_TIME_ANCHORS.baseYear);
-            }
-            lcoeTimeInterval = setInterval(() => {
-                if (lcoeTimeYear >= 2050) {
-                    stopLcoeTimeAnimation();
-                    return;
-                }
-                applyLcoeTimeYear(lcoeTimeYear + 1);
-            }, 650);
+        lcoeTimePlayBtn.addEventListener('click', toggleLcoeTimeAnimation);
+    }
+
+    if (popLcoeTimeSlider) {
+        popLcoeTimeSlider.min = LCOE_TIME_ANCHORS.baseYear;
+        popLcoeTimeSlider.max = 2050;
+        popLcoeTimeSlider.value = lcoeTimeYear;
+        popLcoeTimeSlider.addEventListener('input', (e) => {
+            const year = parseInt(e.target.value, 10);
+            applyLcoeTimeYear(Number.isFinite(year) ? year : LCOE_TIME_ANCHORS.baseYear);
         });
+    }
+
+    if (popLcoeTimePlayBtn) {
+        popLcoeTimePlayBtn.addEventListener('click', toggleLcoeTimeAnimation);
     }
 
     if (waccSourceButtons && waccSourceButtons.length) {
@@ -5119,9 +5407,17 @@ function initUIEvents() {
             });
         });
     }
+    if (gasSourceButtons && gasSourceButtons.length) {
+        gasSourceButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                setGasPriceMode(btn.dataset.mode);
+            });
+        });
+    }
 
     [solarCapexInput, batteryCapexInput, solarOpexInput, batteryOpexInput, solarDegradationInput, solarOpexEscalationInput, batteryOpexEscalationInput, solarLifeInput, batteryLifeInput, waccInput, ilrInput,
-        dieselCapexInput, dieselEfficiencyInput, dieselLifeInput, dieselPriceInput].forEach(input => {
+        dieselCapexInput, dieselEfficiencyInput, dieselLifeInput, dieselPriceInput,
+        gasCapexInput, gasEfficiencyInput, gasLifeInput, gasPriceInput].forEach(input => {
         if (input) input.addEventListener('change', updateLcoeParams);
     });
 
@@ -5260,6 +5556,7 @@ async function updateViewMode(mode) {
     } else if (mode === 'lcoe') {
         legendLcoe.classList.remove('hidden');
         await ensureDieselDataLoaded();
+        await ensureGasDataLoaded();
         syncLcoeControlValues();
         updateLcoeView();
     } else if (mode === 'population') {
@@ -5313,6 +5610,11 @@ function updateLcoeParams() {
     lcoeParams.dieselLife = parseInt(dieselLifeInput?.value, 10) || 20;
     lcoeParams.dieselPrice = parseFloat(dieselPriceInput?.value) || 0;
     lcoeParams.dieselPriceMode = dieselPriceMode;
+    lcoeParams.gasCapex = parseFloat(gasCapexInput?.value) || 800;
+    lcoeParams.gasEfficiency = (parseFloat(gasEfficiencyInput?.value) || 35) / 100;
+    lcoeParams.gasLife = parseInt(gasLifeInput?.value, 10) || 25;
+    lcoeParams.gasPrice = parseFloat(gasPriceInput?.value) || 0;
+    lcoeParams.gasPriceMode = gasPriceMode;
     syncLcoeControlValues();
     resetLcoeTimeLegendLock();
     queueLcoeUpdate();

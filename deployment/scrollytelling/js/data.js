@@ -377,3 +377,20 @@ export async function loadVoronoiLocalCapexCsv() {
         battery_2050: Number(row.battery_2050)
     }));
 }
+
+export async function loadVoronoiGasCsv() {
+    const response = await fetch('../data/voronoi_gas_prices.csv?v=2026-06-09-igu2024');
+    if (!response.ok) {
+        throw new Error('Voronoi gas CSV not found at ../data/voronoi_gas_prices.csv');
+    }
+    const rows = parseCsv(await response.text());
+    return rows.map(row => {
+        const price = row.gas_2024_usd_per_mmbtu;
+        return {
+            location_id: Number(row.location_id),
+            gas_2024_usd_per_mmbtu: (price === '' || price == null) ? null : Number(price),
+            gas_2024_country: row.gas_2024_country || null,
+            gas_available: String(row.gas_available).trim().toLowerCase() === 'true'
+        };
+    });
+}
