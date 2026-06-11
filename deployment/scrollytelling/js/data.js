@@ -1,4 +1,7 @@
-import { readParquet } from './parquet_wasm.js';
+// Vendor libs (parquet-wasm, apache-arrow, and the .wasm binary the former
+// resolves relative to itself) are shared with the main tool at ../../js/ so
+// both pages hit the same cached URLs instead of downloading ~6.9MB twice.
+import { readParquet } from '../../js/parquet_wasm.js';
 
 // Initialize WASM
 let wasmModule = null;
@@ -6,7 +9,7 @@ let wasmModule = null;
 async function initWasm() {
     if (wasmModule) return wasmModule;
     console.log("Initializing Parquet-Wasm...");
-    const wasm = await import('./parquet_wasm.js');
+    const wasm = await import('../../js/parquet_wasm.js');
     await wasm.default();
     wasmModule = wasm;
     console.log("Parquet-Wasm initialized.");
@@ -26,7 +29,7 @@ export async function loadSummary() {
     try {
         const wasmTable = wasm.readParquet(new Uint8Array(buffer));
         const table = wasmTable.intoIPCStream();
-        const { tableFromIPC } = await import('./apache-arrow.js');
+        const { tableFromIPC } = await import('../../js/apache-arrow.js');
         const arrowTable = tableFromIPC(table);
         const data = [];
         for (const row of arrowTable) {
@@ -155,7 +158,7 @@ async function readSampleArrowTable(solarGw, battGwh) {
     }
 
     const buffer = await response.arrayBuffer();
-    const { tableFromIPC } = await import('./apache-arrow.js');
+    const { tableFromIPC } = await import('../../js/apache-arrow.js');
 
     const wasmTable = (wasm.readParquet || readParquet)(new Uint8Array(buffer));
     const table = wasmTable.intoIPCStream();
@@ -225,7 +228,7 @@ export async function loadWeeklyFrameCache(configId, season) {
     }
 
     const wasm = await initWasm();
-    const { tableFromIPC } = await import('./apache-arrow.js');
+    const { tableFromIPC } = await import('../../js/apache-arrow.js');
 
     const candidates = [
         `framecache_${configId}_${seasonKey}.parquet`,
