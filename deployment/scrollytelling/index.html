@@ -20,6 +20,22 @@
     <!-- Preload critical resources -->
     <link rel="preload" href="../js/parquet_wasm_bg.wasm" as="fetch" crossorigin>
     <link rel="preload" href="../data/simulation_results_summary.parquet" as="fetch" crossorigin>
+    <link rel="preload" href="../data/world.geojson" as="fetch" crossorigin>
+
+    <!-- Flatten the ES-module discovery waterfall: preload the full static +
+         dynamic import graph of scrolly.js so all modules fetch in parallel
+         instead of being discovered one network round-trip at a time. -->
+    <link rel="modulepreload" href="js/scrolly.js">
+    <link rel="modulepreload" href="js/visual-states.js">
+    <link rel="modulepreload" href="js/data.js">
+    <link rel="modulepreload" href="js/map.js">
+    <link rel="modulepreload" href="js/utils.js">
+    <link rel="modulepreload" href="js/constants.js">
+    <link rel="modulepreload" href="js/tooltip.js">
+    <link rel="modulepreload" href="js/transitions.js">
+    <link rel="modulepreload" href="js/scrolly-charts.js">
+    <link rel="modulepreload" href="../js/parquet_wasm.js">
+    <link rel="modulepreload" href="../js/apache-arrow.js">
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>

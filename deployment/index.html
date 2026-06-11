@@ -13,7 +13,22 @@
     <!-- Preload critical resources -->
     <link rel="preload" href="js/parquet_wasm_bg.wasm" as="fetch" crossorigin>
     <link rel="preload" href="data/simulation_results_summary.parquet" as="fetch" crossorigin>
+    <link rel="preload" href="data/world.geojson" as="fetch" crossorigin>
     <link rel="preload" href="css/style.css" as="style">
+
+    <!-- Flatten the ES-module discovery waterfall: preload the full static +
+         dynamic import graph of app.js so all modules fetch in parallel
+         instead of being discovered one network round-trip at a time. -->
+    <link rel="modulepreload" href="js/app.js">
+    <link rel="modulepreload" href="js/data.js">
+    <link rel="modulepreload" href="js/map.js">
+    <link rel="modulepreload" href="js/samples.js">
+    <link rel="modulepreload" href="js/utils.js">
+    <link rel="modulepreload" href="js/constants.js">
+    <link rel="modulepreload" href="js/tooltip.js">
+    <link rel="modulepreload" href="js/tour.js">
+    <link rel="modulepreload" href="js/parquet_wasm.js">
+    <link rel="modulepreload" href="js/apache-arrow.js">
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
