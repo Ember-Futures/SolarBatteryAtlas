@@ -85,6 +85,35 @@ let scrollOpacityRaf = null;
 let scrollRafRequestedTs = 0;
 let lastOverlayOpacity = null;
 let lastScrollMetrics = null;
+// Document-space {top, bottom} per section bucket, so per-scroll-frame metrics
+// don't force layout via getBoundingClientRect. Invalidated whenever layout
+// can shift section offsets: window resize, any observed element resizing
+// (ResizeObserver fires per frame during the Summary fold animation), and
+// font loading. Null means "rebuild from fresh rects on next use".
+let scrollBucketCache = null;
+let scrollBucketResizeObserver = null;
+
+function invalidateScrollBucketCache() {
+    scrollBucketCache = null;
+}
+
+function observeScrollBucketLayout() {
+    if (typeof ResizeObserver === 'undefined') return;
+    if (!scrollBucketResizeObserver) {
+        scrollBucketResizeObserver = new ResizeObserver(invalidateScrollBucketCache);
+    } else {
+        scrollBucketResizeObserver.disconnect();
+    }
+    // Body height changes whenever any content above/below a section grows or
+    // shrinks; per-bucket observation additionally catches one bucket growing
+    // while another shrinks with total height unchanged.
+    scrollBucketResizeObserver.observe(document.body);
+    const summarySection = document.querySelector('.scrolly-summary');
+    if (summarySection) scrollBucketResizeObserver.observe(summarySection);
+    scrollSections.forEach(entry => {
+        if (entry.element) scrollBucketResizeObserver.observe(entry.element);
+    });
+}
 let pendingScrollSectionId = null;   // scroll-resolved section waiting for its throttled commit
 let sectionCommitTimer = null;       // trailing-edge timer for the pending section switch
 let lastSectionCommitTs = 0;         // when the last section switch was committed
@@ -403,8 +432,22 @@ async function init() {
         window.addEventListener('resize', () => {
             scrollSections = [];
             lastScrollMetrics = null;
+            invalidateScrollBucketCache();
             updateScrollOpacity();
         }, { passive: true });
+
+        // Late font metrics can shift section offsets after first measure.
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(invalidateScrollBucketCache).catch(() => {});
+        }
+        // The Summary fold toggle shifts every later section's offset. The
+        // ResizeObserver tracks the 0.45s fold animation frame-by-frame, but
+        // its callbacks run after rAF — this capture-phase hook closes the
+        // one-frame window at the moment of the click.
+        const summaryToggle = document.getElementById('summary-toggle');
+        if (summaryToggle) {
+            summaryToggle.addEventListener('click', invalidateScrollBucketCache, { capture: true });
+        }
 
         // Hide loading overlay
         loadingOverlay.classList.add('hidden');
@@ -2677,6 +2720,8 @@ function buildScrollSections() {
             sectionEl: section
         };
     });
+    invalidateScrollBucketCache();
+    observeScrollBucketLayout();
 }
 
 function computeScrollMetrics() {
@@ -2690,13 +2735,19 @@ function computeScrollMetrics() {
     const scrollY = window.scrollY || window.pageYOffset || 0;
     const viewportCenter = scrollY + (window.innerHeight / 2);
 
-    const buckets = scrollSections.map(entry => {
-        const rect = entry.element.getBoundingClientRect();
-        return {
-            top: rect.top + scrollY,
-            bottom: rect.bottom + scrollY
-        };
-    });
+    // Document-space tops/bottoms are scroll-invariant (rect.top ≡ docTop −
+    // scrollY), so with layout unchanged the cached values are identical to
+    // fresh getBoundingClientRect reads — without forcing layout every frame.
+    if (!scrollBucketCache || scrollBucketCache.length !== scrollSections.length) {
+        scrollBucketCache = scrollSections.map(entry => {
+            const rect = entry.element.getBoundingClientRect();
+            return {
+                top: rect.top + scrollY,
+                bottom: rect.bottom + scrollY
+            };
+        });
+    }
+    const buckets = scrollBucketCache;
 
     let activeIdx = -1;
     for (let i = 0; i < buckets.length; i += 1) {
