@@ -576,7 +576,6 @@ const waccInput = document.getElementById('wacc');
 const ilrInput = document.getElementById('ilr');
 const dieselBackupInput = document.getElementById('diesel-backup-toggle');
 const dieselBackupModeGroup = document.getElementById('diesel-backup-mode-group');
-const dieselBackupModeRadios = document.querySelectorAll('input[name="diesel-backup-mode"]');
 const dieselCapexInput = document.getElementById('diesel-capex');
 const dieselEfficiencyInput = document.getElementById('diesel-efficiency');
 const dieselLifeInput = document.getElementById('diesel-life');
@@ -662,7 +661,6 @@ const popIlrInput = document.getElementById('pop-ilr');
 const popTargetCfBackupNote = document.getElementById('pop-target-cf-backup-note');
 const popDieselBackupInput = document.getElementById('pop-diesel-backup-toggle');
 const popDieselBackupModeGroup = document.getElementById('pop-diesel-backup-mode-group');
-const popDieselBackupModeRadios = document.querySelectorAll('input[name="pop-diesel-backup-mode"]');
 const popDieselCapexInput = document.getElementById('pop-diesel-capex');
 const popDieselEfficiencyInput = document.getElementById('pop-diesel-efficiency');
 const popDieselLifeInput = document.getElementById('pop-diesel-life');
@@ -1850,7 +1848,6 @@ function getRowCapex(row) {
 
 function computeBestLcoeByLocationLegacy(targetCf, params) {
     const results = [];
-    const cheapestFirm = Boolean(params.includeDieselBackup) && params.dieselBackupMode === 'cheapest-firm';
     getLocationIndex().forEach(rows => {
         if (!rows.length) return;
         const pre = precomputeLcoePerLocation(rows[0], params);
@@ -1865,7 +1862,7 @@ function computeBestLcoeByLocationLegacy(targetCf, params) {
             const payload = { ...r, ...metrics, targetCf };
             payloads.push(payload);
 
-            const meetsFirmTarget = cheapestFirm ? true : (r.annual_cf >= targetCf);
+            const meetsFirmTarget = r.annual_cf >= targetCf;
             if (meetsFirmTarget) {
                 if (!bestMeeting || metrics.lcoe < bestMeeting.lcoe) {
                     bestMeeting = payload;
@@ -2140,9 +2137,6 @@ function syncLcoeControlValues() {
     setInputValue(popGasPriceInput, lcoeParams.gasPrice);
 
     const backupOn = Boolean(lcoeParams.includeDieselBackup);
-    const mode = lcoeParams.dieselBackupMode || 'min-solar';
-    dieselBackupModeRadios.forEach(r => { r.checked = r.value === mode; });
-    popDieselBackupModeRadios.forEach(r => { r.checked = r.value === mode; });
     if (dieselBackupModeGroup) dieselBackupModeGroup.classList.toggle('hidden', !backupOn);
     if (popDieselBackupModeGroup) popDieselBackupModeGroup.classList.toggle('hidden', !backupOn);
     if (dieselSourceWrapper) dieselSourceWrapper.classList.toggle('hidden', !backupOn);
@@ -2150,13 +2144,13 @@ function syncLcoeControlValues() {
     if (gasSourceWrapper) gasSourceWrapper.classList.toggle('hidden', !backupOn);
     if (popGasSourceWrapper) popGasSourceWrapper.classList.toggle('hidden', !backupOn);
 
-    const showMainBackupNote = backupOn && mode === 'min-solar' && lcoeTargetMode === 'utilization';
-    if (targetCfContainer) targetCfContainer.classList.toggle('hidden', lcoeTargetMode !== 'utilization' || (backupOn && mode === 'cheapest-firm'));
+    const showMainBackupNote = backupOn && lcoeTargetMode === 'utilization';
+    if (targetCfContainer) targetCfContainer.classList.toggle('hidden', lcoeTargetMode !== 'utilization');
     if (targetCfBackupNote) targetCfBackupNote.classList.toggle('hidden', !showMainBackupNote);
     if (targetCfSlider) targetCfSlider.disabled = false;
 
-    const showPopBackupNote = backupOn && mode === 'min-solar';
-    if (popTargetCfContainer) popTargetCfContainer.classList.toggle('hidden', backupOn && mode === 'cheapest-firm');
+    const showPopBackupNote = backupOn;
+    if (popTargetCfContainer) popTargetCfContainer.classList.remove('hidden');
     if (popTargetCfBackupNote) popTargetCfBackupNote.classList.toggle('hidden', !showPopBackupNote);
     if (popTargetCfSlider) popTargetCfSlider.disabled = false;
 }
@@ -2169,22 +2163,6 @@ async function setDieselBackupEnabled(enabled) {
     }
     syncLcoeControlValues();
     resetLcoeTimeLegendLock();
-
-    if (currentViewMode === 'population' && populationOverlayMode === 'lcoe') {
-        updatePopulationView();
-    } else {
-        queueLcoeUpdate();
-    }
-}
-
-function setDieselBackupMode(mode) {
-    const normalized = mode === 'cheapest-firm' ? 'cheapest-firm' : 'min-solar';
-    if (lcoeParams.dieselBackupMode === normalized) return;
-    lcoeParams.dieselBackupMode = normalized;
-    syncLcoeControlValues();
-    resetLcoeTimeLegendLock();
-
-    if (!lcoeParams.includeDieselBackup) return;
 
     if (currentViewMode === 'population' && populationOverlayMode === 'lcoe') {
         updatePopulationView();
@@ -5287,12 +5265,6 @@ function initUIEvents() {
         });
     }
 
-    popDieselBackupModeRadios.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            if (e.target.checked) setDieselBackupMode(e.target.value);
-        });
-    });
-
     populationDisplayButtons.forEach(btn => {
         btn.addEventListener('click', () => {
             setPopulationDisplayMode(btn.dataset.mode);
@@ -5446,12 +5418,6 @@ function initUIEvents() {
             setDieselBackupEnabled(e.target.checked);
         });
     }
-
-    dieselBackupModeRadios.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            if (e.target.checked) setDieselBackupMode(e.target.value);
-        });
-    });
 
     syncLcoeControlValues();
 

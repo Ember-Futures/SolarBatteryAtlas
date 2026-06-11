@@ -348,7 +348,6 @@ function sortByLocationId(results) {
 
 function computeBestLcoe(payload) {
     const { targetCf, params, costMultipliers, waccByLocation, localCapexByLocation, dieselByLocation, gasByLocation } = payload;
-    const cheapestFirm = Boolean(params.includeDieselBackup) && params.dieselBackupMode === 'cheapest-firm';
     const results = [];
 
     STATE.rowsByLocation.forEach((rows, locationId) => {
@@ -370,7 +369,7 @@ function computeBestLcoe(payload) {
             const entry = { ...row, ...metrics, targetCf };
             configPayloads.push(entry);
 
-            const meetsFirmTarget = cheapestFirm ? true : (row.annual_cf >= targetCf);
+            const meetsFirmTarget = row.annual_cf >= targetCf;
             if (meetsFirmTarget) {
                 if (!bestMeeting || metrics.lcoe < bestMeeting.lcoe) {
                     bestMeeting = entry;
