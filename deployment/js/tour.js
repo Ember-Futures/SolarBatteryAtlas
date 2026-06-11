@@ -560,7 +560,7 @@ export function initTour(ctx) {
 
     // On every page load, show a gentle, dismissible nudge encouraging the
     // tour (non-blocking; the X dismisses it for the current view).
-    setTimeout(showNudge, 900);
+    setTimeout(showNudge, 400);
 
     return { openChooser, start: () => startTour(tourSteps), endTour };
 }
