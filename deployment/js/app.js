@@ -4917,6 +4917,17 @@ async function init() {
     updatePlantStatusToggleUI();
     updatePopulationFuelToggleUI();
     try {
+        // Start the heavy network loads immediately so they overlap with map
+        // initialization (initMap doesn't read summary data; loadSummary
+        // touches no DOM). The no-op catches keep an early failure from
+        // surfacing as an unhandled rejection while initMap is still in
+        // flight; the awaits below still rethrow into the same handlers.
+        const summaryLoadPerf = startPerf('summary-load');
+        const summaryPromise = loadSummary();
+        summaryPromise.catch(() => {});
+        const overlapsPromise = loadVoronoiOverlappingCountriesCsv();
+        overlapsPromise.catch(() => {});
+
         // Initialize Map
         await initMap(handleLocationSelect);
 
@@ -4926,8 +4937,7 @@ async function init() {
         // Load ONLY essential data upfront - summary data is required for the initial view
         // Population, fossil plants, and electricity data are lazy-loaded when their views are accessed
         loadingStatus.textContent = "Downloading summary data...";
-        const summaryLoadPerf = startPerf('summary-load');
-        summaryData = await loadSummary();
+        summaryData = await summaryPromise;
         endPerf(summaryLoadPerf, { rows: summaryData?.length || 0 });
         console.log("summaryData loaded:", typeof summaryData, Array.isArray(summaryData), summaryData ? summaryData.length : 'null');
         if (!Array.isArray(summaryData)) {
@@ -4937,7 +4947,7 @@ async function init() {
         // country (or countries, for border-straddling cells) the hovered cell
         // covers. Best-effort: a failure just omits the country line.
         try {
-            const overlapRows = await loadVoronoiOverlappingCountriesCsv();
+            const overlapRows = await overlapsPromise;
             setCellCountries(new Map(overlapRows.map(r => [r.location_id, r.country_names])));
         } catch (err) {
             console.warn('Overlapping-countries data unavailable:', err);

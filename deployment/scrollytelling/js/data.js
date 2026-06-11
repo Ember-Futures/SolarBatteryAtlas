@@ -14,10 +14,15 @@ async function initWasm() {
 }
 
 export async function loadSummary() {
+    // Start the parquet download immediately so it overlaps with the wasm
+    // fetch + compile instead of serializing behind it. The no-op catch keeps
+    // a fetch failure from surfacing as an unhandled rejection while the wasm
+    // await is still in flight; the await below still rethrows it.
+    const bufferPromise = fetch('../data/simulation_results_summary.parquet')
+        .then(response => response.arrayBuffer());
+    bufferPromise.catch(() => {});
     const wasm = await initWasm();
-
-    const response = await fetch('../data/simulation_results_summary.parquet');
-    const buffer = await response.arrayBuffer();
+    const buffer = await bufferPromise;
     try {
         const wasmTable = wasm.readParquet(new Uint8Array(buffer));
         const table = wasmTable.intoIPCStream();

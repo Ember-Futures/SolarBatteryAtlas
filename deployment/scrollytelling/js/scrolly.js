@@ -346,9 +346,22 @@ async function init() {
     updateLoadingStatus('Loading solar data...');
 
     try {
-        // Load primary data
+        // Start the three independent startup loads immediately so they run
+        // concurrently (initMap doesn't read summary data — it just builds
+        // Leaflet and fetches the world geojson; loadSummary touches no DOM).
+        // The no-op catches keep an early failure from surfacing as an
+        // unhandled rejection while another await is in flight; the awaits
+        // below still rethrow into this try/catch in today's order.
         const summaryLoadPerf = startPerf('scrolly-summary-load');
-        summaryData = await loadSummary();
+        const summaryPromise = loadSummary();
+        summaryPromise.catch(() => {});
+        const overlapsPromise = loadVoronoiOverlappingCountriesCsv();
+        overlapsPromise.catch(() => {});
+        const mapPromise = initMap(onLocationSelect);
+        mapPromise.catch(() => {});
+
+        // Load primary data
+        summaryData = await summaryPromise;
         endPerf(summaryLoadPerf, { rows: summaryData?.length || 0 });
         console.log(`Loaded ${summaryData.length} summary rows`);
         prepareSummaryIndexes(summaryData);
@@ -360,14 +373,14 @@ async function init() {
         // country (or countries, for border-straddling cells) the hovered cell covers.
         // Best-effort: a failure just omits the country line, matching the main tool.
         try {
-            const overlapRows = await loadVoronoiOverlappingCountriesCsv();
+            const overlapRows = await overlapsPromise;
             setCellCountries(new Map(overlapRows.map(r => [r.location_id, r.country_names])));
         } catch (err) {
             console.warn('Overlapping-countries data unavailable:', err);
         }
 
         updateLoadingStatus('Initializing map...');
-        await initMap(onLocationSelect);
+        await mapPromise;
 
         // Store map reference globally for transitions
         window.scrollyMap = map;
