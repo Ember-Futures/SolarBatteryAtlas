@@ -8,7 +8,8 @@ import {
     POTENTIAL_MULTIPLE_BUCKETS,
     POTENTIAL_PER_CAPITA_BUCKETS,
     POTENTIAL_TOTAL_COLORS,
-    FEATURE_VORONOI_REUSE
+    FEATURE_VORONOI_REUSE,
+    FEATURE_VORONOI_GEOM_CACHE
 } from './constants.js';
 import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
 
@@ -258,6 +259,23 @@ export function ensureWorldGeoJsonLoaded() {
     return worldGeoJsonPromise;
 }
 let voronoiClipVersionByMap = new Map();
+// Geometry cache: with viewport (zoom|pixelOrigin|size) and the ordered point
+// set unchanged, a Delaunay/renderCell rebuild reproduces byte-identical cell
+// paths — so renderVoronoi can skip it and only refresh fills.
+const voronoiGeomCacheByMap = new Map(); // versionKey -> { geomKey, cellsData }
+// Latest render callbacks/options per map; cell listeners are bound once and
+// read this at event time, so reused elements never fire stale closures.
+const voronoiHandlersByMap = new Map();
+
+// Full wipe + cache drop, used where the old code relied on the pre-render
+// clearVoronoi() to leave a blank map (empty-data early returns, the
+// single-point branch) now that the same-mode pre-render clear is selective.
+function clearVoronoiAndGeomCache() {
+    clearVoronoi();
+    const versionKey = map?._leaflet_id || 'main';
+    voronoiClipVersionByMap.delete(versionKey);
+    voronoiGeomCacheByMap.delete(versionKey);
+}
 let capacityCoordMap = null;
 let capacityCoordMapSource = null;
 let capacityCoordMapPopSource = null;
@@ -553,6 +571,22 @@ function clearVoronoi() {
     d3.select(voronoiLayer._container).selectAll("*").remove();
 }
 
+// Same-mode updates keep <defs> (the cached world clip-path) and the
+// voronoi cell group alive so renderVoronoi can reuse both instead of
+// re-projecting the world coastline and rebuilding ~5k SVG paths on every
+// slider tick. Anything else (sample groups, dual-render leftovers) is
+// removed, matching the full wipe for non-voronoi content.
+function clearVoronoiForSameMode() {
+    if (!voronoiLayer) return;
+    const container = voronoiLayer._container;
+    if (!container) return;
+    Array.from(container.children).forEach(child => {
+        const isDefs = child.tagName && child.tagName.toLowerCase() === 'defs';
+        const isVoronoiGroup = child.classList && child.classList.contains('voronoi-group');
+        if (!isDefs && !isVoronoiGroup) child.remove();
+    });
+}
+
 function resetLayersForMode(mode, { preserveVoronoi = false } = {}) {
     const modeChanged = activeLayerMode !== mode;
     if (modeChanged) {
@@ -564,7 +598,13 @@ function resetLayersForMode(mode, { preserveVoronoi = false } = {}) {
         selectedMarker = null;
     } else {
         if (overlayLayer) overlayLayer.clearLayers();
-        if (!preserveVoronoi) clearVoronoi();
+        if (!preserveVoronoi) {
+            if (FEATURE_VORONOI_GEOM_CACHE) {
+                clearVoronoiForSameMode();
+            } else {
+                clearVoronoi();
+            }
+        }
     }
     return modeChanged;
 }
@@ -877,6 +917,9 @@ export function updateMap(data, solarGw, battGwh, options = {}) {
     const filtered = lastDataIsFiltered ? data : data.filter(d => d.solar_gw === solarGw && d.batt_gwh === battGwh);
 
     if (!filtered || filtered.length === 0) {
+        // The same-mode pre-render clear is selective; replicate the old
+        // "wiped to blank" outcome when there is nothing to render.
+        if (FEATURE_VORONOI_GEOM_CACHE) clearVoronoiAndGeomCache();
         return;
     }
 
@@ -1917,7 +1960,10 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
     resetLayersForMode('potential');
     markersLayer.clearLayers();
 
-    if (!potentialData || potentialData.length === 0) return;
+    if (!potentialData || potentialData.length === 0) {
+        if (FEATURE_VORONOI_GEOM_CACHE) clearVoronoiAndGeomCache();
+        return;
+    }
 
     const totalKey = level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
     const groundKey = level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
@@ -2103,6 +2149,7 @@ export function updateLcoeMap(bestData, options = {}) {
     markersLayer.clearLayers();
 
     if (!bestData || bestData.length === 0) {
+        if (FEATURE_VORONOI_GEOM_CACHE) clearVoronoiAndGeomCache();
         return;
     }
 
@@ -2228,6 +2275,7 @@ export function updateCfMap(cfData, options = {}) {
     markersLayer.clearLayers();
 
     if (!cfData || cfData.length === 0) {
+        if (FEATURE_VORONOI_GEOM_CACHE) clearVoronoiAndGeomCache();
         return;
     }
 
@@ -2342,6 +2390,11 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
         svg.selectAll('*').remove();
     }
 
+    const versionKey = mapRef?._leaflet_id || 'main';
+    // Refresh the handler ref first so bound-once listeners always dispatch
+    // to this render's callbacks (no per-render listener rebinds needed).
+    voronoiHandlersByMap.set(versionKey, { options, enableHoverSelect, useMarkerEvents });
+
     if (mapRef === supplyMap) {
         supplyVoronoiIndex = new Map();
     }
@@ -2349,6 +2402,13 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
     // If only one point, just a circle
     if (mapPoints.length === 1) {
         // ... (simplified for now, or just skip)
+        if (FEATURE_VORONOI_GEOM_CACHE) {
+            // The same-mode pre-render wipe is selective now; replicate the
+            // old "wiped, nothing rendered" outcome for this branch.
+            svg.selectAll('*').remove();
+            voronoiGeomCacheByMap.delete(versionKey);
+            voronoiClipVersionByMap.delete(versionKey);
+        }
         endMapPerf(perf, { rendered: 0, skipped: true });
         return;
     }
@@ -2365,7 +2425,6 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
         const size = mapRef.getSize();
         const center = mapRef.getCenter();
         const clipVersion = `${size.x}x${size.y}|${mapRef.getZoom()}|${center.lat.toFixed(3)},${center.lng.toFixed(3)}`;
-        const versionKey = mapRef?._leaflet_id || 'main';
         const shouldRefreshClip = !FEATURE_VORONOI_REUSE
             || voronoiClipVersionByMap.get(versionKey) !== clipVersion
             || svg.select(`#${clipId}`).empty();
@@ -2394,90 +2453,145 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
         .attr('clip-path', worldGeoJSON ? `url(#${clipId})` : null);
     g.style("pointer-events", allowPointerEvents ? "all" : "none");
 
-    const delaunay = d3.Delaunay.from(mapPoints);
     const size = mapRef.getSize();
-    // Add buffer to cover the whole map view
-    const buffer = Math.max(size.x, size.y);
-    const bounds = [-buffer, -buffer, size.x + buffer, size.y + buffer];
-    const voronoi = delaunay.voronoi(bounds);
-    const cellsData = data.map((row, i) => {
-        const key = Number.isFinite(row.location_id)
-            ? `id:${row.location_id}`
-            : `coord:${row.latitude.toFixed(4)},${row.longitude.toFixed(4)}`;
-        return {
-            key,
+    const origin = mapRef.getPixelOrigin();
+    const rowKeyOf = (row) => Number.isFinite(row.location_id)
+        ? `id:${row.location_id}`
+        : `coord:${row.latitude.toFixed(4)},${row.longitude.toFixed(4)}`;
+    // Layer points are a pure function of (zoom, pixelOrigin); with those and
+    // the size (which fixes the voronoi bounds) unchanged, and the same rows
+    // in the same order, a rebuild would reproduce byte-identical cell paths,
+    // so the cached geometry can be reused and only fills refreshed.
+    const geomKey = `${mapRef.getZoom()}|${origin.x},${origin.y}|${size.x}x${size.y}|${data.map(rowKeyOf).join(';')}`;
+    const geomCache = voronoiGeomCacheByMap.get(versionKey);
+    const geomCacheHit = FEATURE_VORONOI_GEOM_CACHE
+        && FEATURE_VORONOI_REUSE
+        && !!geomCache
+        && geomCache.geomKey === geomKey
+        && g.selectAll('path.voronoi-cell').size() === data.length;
+
+    let cellsData;
+    if (geomCacheHit) {
+        // Same geometry, same elements: swap the rows behind the join so
+        // event handlers see current data, then recolor below.
+        cellsData = geomCache.cellsData;
+        for (let i = 0; i < data.length; i += 1) {
+            cellsData[i].row = data[i];
+        }
+    } else {
+        const delaunay = d3.Delaunay.from(mapPoints);
+        // Add buffer to cover the whole map view
+        const buffer = Math.max(size.x, size.y);
+        const bounds = [-buffer, -buffer, size.x + buffer, size.y + buffer];
+        const voronoi = delaunay.voronoi(bounds);
+        cellsData = data.map((row, i) => ({
+            key: rowKeyOf(row),
             row,
             path: voronoi.renderCell(i)
-        };
-    });
+        }));
+        if (FEATURE_VORONOI_GEOM_CACHE) {
+            voronoiGeomCacheByMap.set(versionKey, { geomKey, cellsData });
+        }
+    }
+
+    const applyCellStyle = function (cell) {
+        const d = cell.row;
+        const el = d3.select(this);
+        const style = fillAccessor ? fillAccessor(d) : null;
+        if (style && typeof style === 'object') {
+            el.attr("fill", style.fillColor || style.color)
+                .attr("fill-opacity", Number.isFinite(style.fillOpacity) ? style.fillOpacity : 0.6)
+                .attr("stroke", style.color || "rgba(255,255,255,0.08)")
+                .attr("stroke-width", Number.isFinite(style.weight) ? style.weight : 0.5);
+        } else {
+            el.attr("fill", style || getColor(d.annual_cf))
+                .attr("fill-opacity", 0.6)
+                .attr("stroke", "rgba(255,255,255,0.08)")
+                .attr("stroke-width", 0.5);
+        }
+        // Reused elements can carry hover bookkeeping from a hover that was
+        // active when this render fired; drop it so a later mouseout can't
+        // restore a stroke saved under the previous style. Matches the old
+        // destroy-and-recreate semantics (hover rim drops on re-render).
+        if (this.hasAttribute('data-hover-prev-stroke')) {
+            el.attr('data-hover-prev-stroke', null)
+                .attr('data-hover-prev-stroke-width', null)
+                .attr('data-hover-prev-stroke-opacity', null)
+                .classed('voronoi-hover', false);
+        }
+        if (mapRef === supplyMap) {
+            const key = getRowKey(d);
+            if (key) supplyVoronoiIndex.set(key, this);
+        }
+    };
 
     let paths = g.selectAll('path.voronoi-cell');
     paths = FEATURE_VORONOI_REUSE
         ? paths.data(cellsData, d => d.key)
         : paths.data(cellsData);
+
+    if (geomCacheHit) {
+        // Fast path: geometry and elements are unchanged — skip exit/enter,
+        // 'd' attribute writes, and listener binds; only refresh styles.
+        paths.each(applyCellStyle)
+            .style("pointer-events", allowPointerEvents ? "all" : "none");
+        endMapPerf(perf, { rendered: cellsData.length, geomCacheHit: true });
+        return;
+    }
+
     paths.exit().remove();
 
     const enterPaths = paths.enter()
         .append('path')
         .attr('class', 'transition-color voronoi-cell leaflet-interactive');
 
-    enterPaths.merge(paths)
-        .attr('d', d => d.path)
-        .attr('data-loc-id', d => d.row.location_id)
-        .each(function (cell) {
-            const d = cell.row;
-            const el = d3.select(this);
-            const style = fillAccessor ? fillAccessor(d) : null;
-            if (style && typeof style === 'object') {
-                el.attr("fill", style.fillColor || style.color)
-                    .attr("fill-opacity", Number.isFinite(style.fillOpacity) ? style.fillOpacity : 0.6)
-                    .attr("stroke", style.color || "rgba(255,255,255,0.08)")
-                    .attr("stroke-width", Number.isFinite(style.weight) ? style.weight : 0.5);
-            } else {
-                el.attr("fill", style || getColor(d.annual_cf))
-                    .attr("fill-opacity", 0.6)
-                    .attr("stroke", "rgba(255,255,255,0.08)")
-                    .attr("stroke-width", 0.5);
-            }
-            if (mapRef === supplyMap) {
-                const key = getRowKey(d);
-                if (key) supplyVoronoiIndex.set(key, this);
-            }
-        })
-        .style("pointer-events", allowPointerEvents ? "all" : "none")
+    // Listeners are bound once, on enter only; they read voronoiHandlersByMap
+    // at event time so reused elements always dispatch to the latest
+    // callbacks (set at the top of every renderVoronoi call).
+    enterPaths
         .on("click", (e, cell) => {
+            const h = voronoiHandlersByMap.get(versionKey) || {};
             const d = cell.row || cell;
-            if (useMarkerEvents) {
+            if (h.useMarkerEvents) {
                 fireMarkerEvent(d, 'click');
             }
-            if (options.onClick) {
-                options.onClick(d);
+            if (h.options && h.options.onClick) {
+                h.options.onClick(d);
             }
         })
         .on("mouseover", function (e, cell) {
+            const h = voronoiHandlersByMap.get(versionKey) || {};
             const d = cell.row || cell;
-            if (!enableHoverSelect) return;
+            if (!h.enableHoverSelect) return;
             applyHoverRim(this);
-            if (useMarkerEvents) {
+            if (h.useMarkerEvents) {
                 fireMarkerEvent(d, 'mouseover');
             }
-            if (options.onHover) {
-                options.onHover(e, d);
+            if (h.options && h.options.onHover) {
+                h.options.onHover(e, d);
             }
         })
         .on("mouseout", function (e, cell) {
+            const h = voronoiHandlersByMap.get(versionKey) || {};
             const d = cell.row || cell;
-            if (!enableHoverSelect) return;
+            if (!h.enableHoverSelect) return;
             clearHoverRim(this);
-            if (useMarkerEvents) {
+            if (h.useMarkerEvents) {
                 fireMarkerEvent(d, 'mouseout');
             }
-            if (options.onOut) {
-                options.onOut(e, d);
+            if (h.options && h.options.onOut) {
+                h.options.onOut(e, d);
             }
         });
 
-    endMapPerf(perf, { rendered: cellsData.length });
+    enterPaths.merge(paths)
+        .attr('d', d => d.path)
+        .attr('data-loc-id', d => d.row.location_id)
+        .each(applyCellStyle)
+        .style("pointer-events", allowPointerEvents ? "all" : "none")
+        .order();
+
+    endMapPerf(perf, { rendered: cellsData.length, geomCacheHit: false });
 }
 
 // ========== SAMPLE DAYS FUNCTIONS ==========

@@ -87,8 +87,11 @@ export const POTENTIAL_TOTAL_COLORS = [
  * 3) FEATURE_STAGED_PRELOAD (scrollytelling)
  * 4) FEATURE_WORKER_LCOE
  * 5) FEATURE_FRAMECACHE (scrollytelling)
+ * 6) FEATURE_VORONOI_GEOM_CACHE (skip Delaunay/path rebuilds when the
+ *    viewport and point set are unchanged; recolor-only fast path)
  */
 export const FEATURE_WORKER_LCOE = true;
 export const FEATURE_STAGED_PRELOAD = true;
 export const FEATURE_VORONOI_REUSE = true;
 export const FEATURE_FRAMECACHE = false;
+export const FEATURE_VORONOI_GEOM_CACHE = true;
