@@ -111,6 +111,97 @@
     opacity: 0.7;
 }
 
+/* ========== Article Summary (collapsible) ========== */
+.scrolly-summary {
+    padding: 2.5rem 3rem 3rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.scrolly-summary-content {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.scrolly-summary-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    background: none;
+    border: none;
+    border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+    cursor: pointer;
+    text-align: left;
+}
+
+.scrolly-summary-title {
+    font-family: 'Poppins', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #f59e0b;
+}
+
+.scrolly-summary-icon {
+    color: #f59e0b;
+    font-size: 1.5rem;
+    transition: transform 0.35s ease;
+}
+
+.scrolly-summary.is-open .scrolly-summary-icon {
+    transform: rotate(180deg);
+}
+
+/* Smooth fold via max-height (collapsed by default) */
+.scrolly-summary-collapse {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.45s ease;
+}
+
+.scrolly-summary.is-open .scrolly-summary-collapse {
+    max-height: 1500px;
+}
+
+.scrolly-summary-list {
+    list-style: none;
+    margin: 0;
+    padding: 1.5rem 0 0;
+}
+
+.scrolly-summary-list li {
+    position: relative;
+    font-family: 'Poppins', sans-serif;
+    font-size: 1rem;
+    line-height: 1.7;
+    color: #cdd3e0;
+    padding-left: 1.25rem;
+    margin-bottom: 1.1rem;
+}
+
+.scrolly-summary-list li:last-child {
+    margin-bottom: 0;
+}
+
+.scrolly-summary-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.62rem;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f59e0b;
+}
+
+.scrolly-summary-list strong {
+    color: #fff;
+    font-weight: 600;
+}
+
 /* ========== Article Sections ========== */
 .scrolly-section {
     min-height: 120vh;

@@ -101,6 +101,43 @@
                 </div>
             </header>
 
+            <!-- Article Summary (collapsible; collapsed by default) -->
+            <section class="scrolly-summary" data-section="summary">
+                <div class="scrolly-summary-content">
+                    <button type="button" class="scrolly-summary-toggle" id="summary-toggle"
+                        aria-expanded="false" aria-controls="summary-body">
+                        <span class="scrolly-summary-title">Summary</span>
+                        <span class="scrolly-summary-icon material-symbols-outlined" aria-hidden="true">expand_more</span>
+                    </button>
+                    <div class="scrolly-summary-collapse" id="summary-body" role="region"
+                        aria-labelledby="summary-toggle">
+                        <div class="scrolly-summary-inner">
+                        <ul class="scrolly-summary-list">
+                            <li><strong>Solar is almost unimaginably abundant.</strong> Technically suitable land could
+                                generate around 185 times today’s electricity use; more than 90% of people live where
+                                local solar potential is at least 10 times current electricity demand.</li>
+                            <li><strong>Batteries turn solar into high-uptime power.</strong> With storage, regions home
+                                to more than 90% of the world’s population can reach 80% uptime, and favourable regions
+                                can push past 95% without any wind, hydro, imports, demand shifting or backup.</li>
+                            <li><strong>Solar plus battery is already cheap where most people live.</strong> Around 80%
+                                of people can get 80% uptime solar-plus-storage power for under $100/MWh, and about half
+                                of humanity can get it for under $80/MWh.</li>
+                            <li><strong>The opportunity is biggest where electricity is weakest.</strong> Around
+                                760 million people still lack electricity, close to 2 billion have unreliable grids, and
+                                much of this demand sits in sunny regions where solar plus batteries can already beat
+                                planned fossil generation.</li>
+                            <li><strong>New fossil capacity is increasingly exposed.</strong> Of roughly 850 GW of
+                                planned coal and gas capacity, about 590 GW sits in regions where solar plus batteries
+                                can already deliver 80% uptime power for under $100/MWh.</li>
+                            <li><strong>And this is before the next cost decline.</strong> By 2030, more than three
+                                quarters of the world could get 80% uptime solar-plus-storage power for under $80/MWh,
+                                and 90% could get it for under $100/MWh.</li>
+                        </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Introduction -->
             <section class="scrolly-section" data-section="introduction" id="section-introduction">
                 <div class="scrolly-section-content">
@@ -899,6 +936,19 @@
 
     <!-- Application Scripts -->
     <script type="module" src="js/scrolly.js"></script>
+
+    <!-- Summary fold toggle (collapsed by default) -->
+    <script>
+        (function () {
+            var toggle = document.getElementById('summary-toggle');
+            if (!toggle) return;
+            var section = toggle.closest('.scrolly-summary');
+            toggle.addEventListener('click', function () {
+                var open = section.classList.toggle('is-open');
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            });
+        })();
+    </script>
 </body>
 
 </html>
