@@ -1097,6 +1097,10 @@ function startOutlookAnimation() {
         applyOutlookYear(LCOE_OUTLOOK_ANCHORS.baseYear);
     }
     lcoeOutlookInterval = setInterval(() => {
+        // Skip ticks while the tab is hidden so the LCOE recompute for all
+        // locations doesn't run in a background tab; the year freezes and the
+        // sweep resumes from the same point when the tab becomes visible.
+        if (document.hidden) return;
         if (lcoeOutlookYear >= 2050) {
             stopOutlookAnimation();
             return;
@@ -3503,6 +3507,10 @@ function startWeeklyAnimation() {
     // Use a timer to update map every 500ms (matching main tool)
     // OPTIMIZED: Only updates colors, not DOM structure
     weeklyAnimationInterval = setInterval(() => {
+        // Skip ticks while the tab is hidden: the loop is modulo-cyclic, so
+        // freezing the frame index is unobservable on return, and we avoid
+        // recomputing every location's colors in a background tab.
+        if (document.hidden) return;
         renderWeeklyFrameFast();
         // Assuming 168 hours in a week
         const len = weeklySampleData[0]?.timestamps?.length || 168;
