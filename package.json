@@ -4,9 +4,11 @@
     "description": "Solar + Battery Atlas local development environment",
     "scripts": {
         "dev": "vite",
-        "start": "vite"
+        "start": "vite",
+        "build:css": "tailwindcss -c tailwind.config.js -i tailwind.source.css -o deployment/css/tailwind.css --minify"
     },
     "devDependencies": {
+        "tailwindcss": "^3.4.17",
         "vite": "^6.0.0"
     }
 }

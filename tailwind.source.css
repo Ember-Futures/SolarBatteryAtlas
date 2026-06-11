@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Play-CDN parity layer.
+ *
+ * The CDN JIT generated rules in ENCOUNTER order, so a class first added to
+ * the DOM at runtime (classList.toggle/add) was emitted after the statically
+ * scanned ones and won same-specificity conflicts (e.g. a toggled-ON button
+ * carrying both bg-surface-variant and bg-emerald-400/10 showed emerald).
+ * The CLI emits canonical order instead, which would flip those states.
+ *
+ * Restating every dynamically-toggled utility here, after the utilities
+ * layer, reproduces the CDN outcome: the class present on the element wins.
+ * Declarations are copied verbatim from the canonical v3.4.17 build output
+ * (@apply can't be used: applying a class inside itself is circular).
+ * (`hidden` needs no entry: it already sorts after the other display
+ * utilities canonically.)
+ */
+.bg-emerald-400\/10 { background-color:rgba(52,211,153,.1) }
+.bg-gray-600 { --tw-bg-opacity:1;background-color:rgb(75 85 99/var(--tw-bg-opacity,1)) }
+.bg-primary { --tw-bg-opacity:1;background-color:rgb(19 206 116/var(--tw-bg-opacity,1)) }
+.bg-slate-700 { --tw-bg-opacity:1;background-color:rgb(51 65 85/var(--tw-bg-opacity,1)) }
+.bg-slate-800 { --tw-bg-opacity:1;background-color:rgb(30 41 59/var(--tw-bg-opacity,1)) }
+.bg-slate-900 { --tw-bg-opacity:1;background-color:rgb(15 23 42/var(--tw-bg-opacity,1)) }
+.bg-white\/10 { background-color:hsla(0,0%,100%,.1) }
+.border-emerald-400\/20 { border-color:rgba(52,211,153,.2) }
+.shadow-sm { --tw-shadow:0 1px 2px 0 rgba(0,0,0,.05);--tw-shadow-colored:0 1px 2px 0 var(--tw-shadow-color) }
+.text-black { --tw-text-opacity:1;color:rgb(0 0 0/var(--tw-text-opacity,1)) }
+.text-emerald-400 { --tw-text-opacity:1;color:rgb(52 211 153/var(--tw-text-opacity,1)) }
+.text-gray-400 { --tw-text-opacity:1;color:rgb(156 163 175/var(--tw-text-opacity,1)) }
+.text-muted { --tw-text-opacity:1;color:rgb(154 161 159/var(--tw-text-opacity,1)) }
+.text-red-500 { --tw-text-opacity:1;color:rgb(239 68 68/var(--tw-text-opacity,1)) }
+.text-slate-100 { --tw-text-opacity:1;color:rgb(241 245 249/var(--tw-text-opacity,1)) }
+.text-slate-200 { --tw-text-opacity:1;color:rgb(226 232 240/var(--tw-text-opacity,1)) }
+.text-slate-300 { --tw-text-opacity:1;color:rgb(203 213 225/var(--tw-text-opacity,1)) }
+.text-slate-400 { --tw-text-opacity:1;color:rgb(148 163 184/var(--tw-text-opacity,1)) }
+.text-slate-500 { --tw-text-opacity:1;color:rgb(100 116 139/var(--tw-text-opacity,1)) }
+.text-white { --tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1)) }
+.hover\:bg-white\/5:hover { background-color:hsla(0,0%,100%,.05) }
+.hover\:text-white:hover { --tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1)) }
