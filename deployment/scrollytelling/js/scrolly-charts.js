@@ -733,14 +733,13 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
                 lcoe,
                 coal: row.coal_Announced || 0,
                 gas: row.oil_gas_Announced || 0,
-                nuclear: row.nuclear_Announced || 0,
                 bio: row.bioenergy_Announced || 0
             });
         }
     });
 
     combined.sort((a, b) => a.lcoe - b.lcoe);
-    const activeData = combined.filter(d => (d.coal + d.gas + d.nuclear + d.bio) > 0);
+    const activeData = combined.filter(d => (d.coal + d.gas + d.bio) > 0);
 
     const maxLcoe = 200;
     const numBuckets = 20;
@@ -750,7 +749,6 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
         limit: (i + 1) * lcoeStep,
         coal: 0,
         gas: 0,
-        nuclear: 0,
         bio: 0,
         label: `$${Math.round((i + 1) * lcoeStep)}`
     }));
@@ -759,7 +757,6 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
         limit: Infinity,
         coal: 0,
         gas: 0,
-        nuclear: 0,
         bio: 0,
         label: '>200'
     };
@@ -771,22 +768,19 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
             : bins[Math.min(Math.floor(lcoeValue / lcoeStep), numBuckets - 1)];
         bin.coal += d.coal / 1000;
         bin.gas += d.gas / 1000;
-        bin.nuclear += d.nuclear / 1000;
         bin.bio += d.bio / 1000;
     });
 
-    let tumCoal = 0, tumGas = 0, tumNuc = 0, tumBio = 0;
+    let tumCoal = 0, tumGas = 0, tumBio = 0;
     const dataPoints = [...bins, overflowBin].map(bin => {
         tumCoal += bin.coal;
         tumGas += bin.gas;
-        tumNuc += bin.nuclear;
         tumBio += bin.bio;
         return {
             lcoe: bin.limit,
             label: bin.label,
             coal: tumCoal,
             gas: tumGas,
-            nuclear: tumNuc,
             bio: tumBio
         };
     });
@@ -808,7 +802,6 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
 
     const coalColor = FUEL_COLORS.coal;
     const gasColor = FUEL_COLORS.oil_gas;
-    const nuclearColor = FUEL_COLORS.nuclear;
     const bioColor = FUEL_COLORS.bioenergy;
 
     const chartData = {
@@ -816,7 +809,6 @@ export async function showCumulativeCapacityChart(fossilData, lcoeData) {
         datasets: [
             { label: 'Coal', data: dataPoints.map(p => p.coal), borderColor: coalColor, backgroundColor: coalColor + 'CC', hoverBackgroundColor: coalColor + 'CC', hoverBorderColor: coalColor, borderWidth: 1 },
             { label: 'Oil/Gas', data: dataPoints.map(p => p.gas), borderColor: gasColor, backgroundColor: gasColor + 'CC', hoverBackgroundColor: gasColor + 'CC', hoverBorderColor: gasColor, borderWidth: 1 },
-            { label: 'Nuclear', data: dataPoints.map(p => p.nuclear), borderColor: nuclearColor, backgroundColor: nuclearColor + 'CC', hoverBackgroundColor: nuclearColor + 'CC', hoverBorderColor: nuclearColor, borderWidth: 1 },
             { label: 'Bioenergy', data: dataPoints.map(p => p.bio), borderColor: bioColor, backgroundColor: bioColor + 'CC', hoverBackgroundColor: bioColor + 'CC', hoverBorderColor: bioColor, borderWidth: 1 }
         ]
     };
@@ -877,7 +869,7 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     if (title) title.textContent = useDiesel
         ? 'Cost of solar + battery + firm back-up to provide power'
         : 'Cost of solar + battery system to provide power';
-    if (subtitle) subtitle.textContent = `LCOE ($/MWh) to reach ${targetCfValue}% uptime, sorted by cost for 10% slices of the population without access`;
+    if (subtitle) subtitle.textContent = `LCOE ($/MWh) to reach ${targetCfValue}% uptime, connecting the cheapest people first`;
 
     const targetCf = targetCfValue / 100;
     const lcoeLookup = Array.isArray(lcoeResults) && lcoeResults.length
@@ -980,6 +972,10 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     const bucketSize = totalPopNoAccess / 10;
     const buckets = [];
 
+    // X-axis labels: cumulative people without access reached by the end of each
+    // 10% slice, in millions rounded to the nearest 10m (e.g. "300m").
+    const cumPopLabel = (cumPop) => `${Math.round(cumPop / 1e6 / 10) * 10}m`;
+
     let currentPopSum = 0;
     let currentLcoeSum = 0;
     let currentBucketPop = 0;
@@ -1005,7 +1001,7 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
             if (currentBucketPop >= bucketSize - 0.001) { // Floating point tolerance
                 buckets.push({
                     avgLcoe: currentLcoeSum / bucketSize,
-                    label: `${bucketIndex * 10}-${(bucketIndex + 1) * 10}%`
+                    label: cumPopLabel((bucketIndex + 1) * bucketSize)
                 });
 
                 bucketIndex++;
@@ -1019,11 +1015,14 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     if (buckets.length < 10 && currentBucketPop > 0) {
         buckets.push({
             avgLcoe: currentLcoeSum / currentBucketPop,
-            label: `${(buckets.length) * 10}-${(buckets.length + 1) * 10}%`
+            label: cumPopLabel(totalPopNoAccess)
         });
     }
 
-    // Helper functions for external highlighting
+    // Helper functions for external highlighting. They stay registered on window
+    // after the section changes, so each guards that the chart currently occupying
+    // the single layout is still the one this call created (sectionChart).
+    let sectionChart = null;
     window.highlightChartByLocationId = (locationId) => {
         console.log("Hovering map location:", locationId);
         if (!window.section5LocationToBin) {
@@ -1041,13 +1040,13 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
 
     window.highlightChartByBinIndex = (binIndex) => {
         const chart = chartInstances['chart-layout-single'];
-        if (!chart) return;
+        if (!chart || chart !== sectionChart) return;
 
         const dataset = chart.data.datasets[0];
         const newColors = buckets.map((_, i) => {
             const lightness = 80 - (i / 9) * 30;
             const isHighlighted = i === binIndex;
-            return isHighlighted ? `hsla(0, 0%, ${lightness}%, 1)` : `hsla(0, 0%, ${lightness}%, 0.15)`;
+            return isHighlighted ? `hsla(0, 84%, ${lightness}%, 1)` : `hsla(0, 84%, ${lightness}%, 0.15)`;
         });
         dataset.backgroundColor = newColors;
         dataset.borderColor = newColors.map(c => c.replace('0.15', '0.3'));
@@ -1056,12 +1055,12 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
 
     window.clearSection5ChartHighlight = () => {
         const chart = chartInstances['chart-layout-single'];
-        if (!chart) return;
+        if (!chart || chart !== sectionChart) return;
 
         const dataset = chart.data.datasets[0];
         const defaultColors = buckets.map((_, i) => {
             const lightness = 80 - (i / 9) * 30;
-            return `hsla(0, 0%, ${lightness}%, 0.7)`;
+            return `hsla(0, 84%, ${lightness}%, 0.7)`;
         });
         dataset.backgroundColor = defaultColors;
         dataset.borderColor = defaultColors.map(c => c.replace('0.7', '1'));
@@ -1075,21 +1074,36 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
             data: buckets.map(b => b.avgLcoe),
             backgroundColor: buckets.map((_, i) => {
                 const lightness = 80 - (i / 9) * 30; // 80% (light) to 50% (mid)
-                return `hsla(0, 0%, ${lightness}%, 0.7)`;
+                return `hsla(0, 84%, ${lightness}%, 0.7)`;
             }),
             borderColor: buckets.map((_, i) => {
                 const lightness = 80 - (i / 9) * 30;
-                return `hsl(0, 0%, ${lightness}%)`;
+                return `hsl(0, 84%, ${lightness}%)`;
             }),
             borderWidth: 1,
             hoverBackgroundColor: '#fff'
         }]
     };
 
-    await renderChart('chart-layout-single', 'bar', chartData, {
+    sectionChart = await renderChart('chart-layout-single', 'bar', chartData, {
         yAxisLabel: '',
         plugins: { legend: { display: false } },
         animationDuration: 0,
+        scales: {
+            x: {
+                grid: { color: CHART_COLORS.grid },
+                ticks: { font: { size: 10 } },
+                title: {
+                    display: true,
+                    text: 'People without electricity access (cumulative, cheapest first)',
+                    font: { size: 11 }
+                }
+            },
+            y: {
+                grid: { color: CHART_COLORS.grid },
+                ticks: { font: { size: 10 } }
+            }
+        },
         onHover: (event, elements) => {
             if (elements && elements.length > 0) {
                 const index = elements[0].index;
@@ -1108,7 +1122,9 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     });
 
     if (typeof window !== 'undefined') {
-        window.section5ChartActive = true;
+        // Only claim the section-5 highlight hooks if this chart is still the one
+        // on screen — a stale render must not hijack a newer section's chart.
+        window.section5ChartActive = sectionChart != null && sectionChart === chartInstances['chart-layout-single'];
     }
 
     container.classList.remove('hidden', 'chart-slide-out');
@@ -1125,7 +1141,7 @@ export async function showGlobalPopulationLcoeChart(populationData, lcoeResults,
     const title = document.querySelector('#chart-layout-single .chart-title');
     const subtitle = document.querySelector('#chart-layout-single .chart-subtitle');
     if (title) title.textContent = 'Global population vs LCOE';
-    if (subtitle) subtitle.textContent = 'Cumulative share of global population that can meet the uptime target, %';
+    if (subtitle) subtitle.textContent = 'Cumulative share of global population reached, by solar + battery cost (%)';
 
     const popById = new Map();
     let totalPopulation = 0;
@@ -1274,7 +1290,6 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
     const title = document.querySelector('#chart-layout-single .chart-title');
     const subtitle = document.querySelector('#chart-layout-single .chart-subtitle');
     if (title) title.textContent = 'Cost of Firm Back-up to 100% Uptime';
-    if (subtitle) subtitle.textContent = `Back-up cost by share of world population, $/MWh — solar + battery to ${pct}% uptime, least-cost gas/diesel for the rest`;
 
     // Population by location
     const popById = new Map();
@@ -1286,11 +1301,15 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
         totalPop += pop;
     });
 
-    // Per-location back-up cost (capex + fuel) weighted by population
+    // Per-location back-up cost (capex + fuel) weighted by population. Locations without a
+    // qualifying solar+battery result (meetsTarget === false) or absent from our dataset are
+    // dropped, so the distribution covers only the subset of the population our data covers.
+    // That subset is a limit of data coverage, not a claim that other places can't be served.
     const items = [];
     (backupResults || []).forEach(r => {
         const pop = popById.get(Number(r.location_id)) || 0;
         if (pop <= 0) return;
+        if (r.meetsTarget === false || !Number.isFinite(r.backup_total_per_mwh)) return;
         const capex = Number(r.backup_capex_per_mwh) || 0;
         const opex = Number(r.backup_opex_per_mwh) || 0;
         if (!Number.isFinite(capex) || !Number.isFinite(opex)) return;
@@ -1298,9 +1317,14 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
     });
     items.sort((a, b) => a.total - b.total);
 
+    // Deciles span the covered population only (locations without data dropped above).
+    const reachablePop = items.reduce((s, it) => s + it.pop, 0);
+    const reachPct = totalPop > 0 ? Math.round((reachablePop / totalPop) * 100) : 0;
+    if (subtitle) subtitle.textContent = `Back-up cost for the ${reachPct}% of people our dataset covers — solar + battery provide ${pct}% uptime, least-cost gas/diesel covers the remaining hours to 100%`;
+
     // Allocate population into 10 equal-population deciles (cheapest back-up first)
     const N = 10;
-    const perDecile = totalPop / N;
+    const perDecile = reachablePop / N;
     const bins = Array.from({ length: N }, () => ({ pop: 0, capexW: 0, opexW: 0 }));
     let bi = 0, acc = 0;
     if (perDecile > 0) {
@@ -1334,7 +1358,7 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
 
     await renderChart('chart-layout-single', 'bar', chartData, {
         scales: {
-            x: { stacked: true, title: { display: true, text: 'Cumulative share of world population' }, grid: { color: CHART_COLORS.grid }, ticks: { font: { size: 10 } } },
+            x: { stacked: true, title: { display: true, text: 'Cumulative share of covered population' }, grid: { color: CHART_COLORS.grid }, ticks: { font: { size: 10 } } },
             y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Back-up cost ($/MWh)' }, grid: { color: CHART_COLORS.grid }, ticks: { font: { size: 10 } } }
         },
         interaction: { intersect: false, mode: 'index' },
@@ -1352,6 +1376,246 @@ export async function showBackupCostChart(backupResults, populationData, sbTarge
     container.classList.remove('hidden', 'chart-slide-out');
     container.classList.add('chart-slide-in');
     document.querySelector('.scrolly-visual')?.classList.add('with-chart');
+}
+
+// ============================================================================
+// Section 4: "Demand & Supply by Latitude" (ported from the main tool, app.js).
+// Demand  = population share by latitude (yellow stepped line, top axis).
+// Supply  = LCOE solar+battery by latitude (blue median-per-band line + green
+//           per-cell scatter, bottom axis), over a faint equirectangular world map.
+// ============================================================================
+let latitudeChartInstance = null;
+let _latWorldGeoJson = null;
+let _latWorldGeoPromise = null;
+
+async function ensureLatWorldGeoJson() {
+    if (_latWorldGeoJson) return _latWorldGeoJson;
+    if (_latWorldGeoPromise) return _latWorldGeoPromise;
+    _latWorldGeoPromise = (async () => {
+        const sources = [
+            '../data/world.geojson',
+            'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson'
+        ];
+        for (const src of sources) {
+            try {
+                const res = await fetch(src);
+                if (!res.ok) continue;
+                _latWorldGeoJson = await res.json();
+                return _latWorldGeoJson;
+            } catch (_) { /* try next source */ }
+        }
+        return null;
+    })();
+    return _latWorldGeoPromise;
+}
+
+function _latQuantile(sorted, q) {
+    if (!sorted.length) return null;
+    const pos = (sorted.length - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base + 1] !== undefined) {
+        return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+    }
+    return sorted[base];
+}
+
+// Median supply metric per 5° latitude band.
+function _latBandStats(rows, bandSize = 5) {
+    const bands = new Map();
+    rows.forEach(r => {
+        if (!Number.isFinite(r.latitude) || !Number.isFinite(r.metric)) return;
+        const idx = Math.floor((r.latitude + 90) / bandSize);
+        const key = Math.max(0, Math.min(Math.floor(180 / bandSize) - 1, idx));
+        if (!bands.has(key)) bands.set(key, []);
+        bands.get(key).push(r.metric);
+    });
+    const stats = [];
+    bands.forEach((values, key) => {
+        const sorted = values.slice().sort((a, b) => a - b);
+        const lat = -90 + key * bandSize + bandSize / 2;
+        stats.push({ lat, p50: _latQuantile(sorted, 0.5) });
+    });
+    return stats.sort((a, b) => a.lat - b.lat);
+}
+
+// Population (or other weight) share per latitude band, as {x: share%, y: midLat}.
+function _latWeightedHistogram(metrics, bucketCount = 36) {
+    const total = metrics.reduce((s, m) => s + (m.weight || 0), 0);
+    if (!total) return [];
+    const bucketSize = 180 / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, (_, i) => ({
+        mid: -90 + (i + 0.5) * bucketSize,
+        weight: 0
+    }));
+    metrics.forEach(m => {
+        if (!Number.isFinite(m.latitude)) return;
+        const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((m.latitude + 90) / bucketSize)));
+        buckets[idx].weight += m.weight || 0;
+    });
+    return buckets.map(b => ({ x: (b.weight / total) * 100, y: b.mid }));
+}
+
+const _latWorldMapPlugin = {
+    id: 'latWorldMapBackground',
+    _cacheKey: null,
+    _cache: null,
+    beforeDatasetsDraw(chart) {
+        if (!_latWorldGeoJson || !window.d3) return;
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !scales || !scales.y) return;
+        const yScale = scales.y;
+        const top = yScale.getPixelForValue(90);
+        const bottom = yScale.getPixelForValue(-90);
+        const left = chartArea.left;
+        const right = chartArea.right;
+        const w = Math.max(1, Math.round(right - left));
+        const h = Math.max(1, Math.round(bottom - top));
+        const cacheKey = `${w}x${h}`;
+        if (this._cacheKey !== cacheKey) {
+            const off = document.createElement('canvas');
+            off.width = w;
+            off.height = h;
+            const oc = off.getContext('2d');
+            const transform = window.d3.geoTransform({
+                point(lambda, phi) {
+                    const x = ((lambda + 180) / 360) * w;
+                    const y = (1 - (phi + 90) / 180) * h;
+                    this.stream.point(x, y);
+                }
+            });
+            const path = window.d3.geoPath(transform, oc);
+            oc.fillStyle = 'rgba(148, 163, 184, 0.18)';
+            oc.beginPath();
+            path(_latWorldGeoJson);
+            oc.fill();
+            this._cache = off;
+            this._cacheKey = cacheKey;
+        }
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, right - left, bottom - top);
+        ctx.clip();
+        ctx.drawImage(this._cache, left, top, w, h);
+        ctx.restore();
+    }
+};
+
+export async function showLatitudeDemandSupplyChart(populationData, lcoeResults) {
+    const canvas = document.getElementById('latitude-chart-canvas');
+    if (!canvas) return;
+    await ensureChartJsLoaded();
+    // Load the world-map background once; redraw the chart when it lands.
+    ensureLatWorldGeoJson().then(gj => {
+        if (gj && latitudeChartInstance) latitudeChartInstance.update('none');
+    });
+
+    // Demand: population share by latitude (stepped, anchored to the poles).
+    const metrics = (populationData || [])
+        .filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.population_2020) && p.population_2020 > 0)
+        .map(p => ({ latitude: p.latitude, weight: p.population_2020 }));
+    const demandLineData = _latWeightedHistogram(metrics, 36).sort((a, b) => a.y - b.y);
+    if (demandLineData.length) {
+        if (demandLineData[0].y > -90) demandLineData.unshift({ x: demandLineData[0].x, y: -90 });
+        const last = demandLineData[demandLineData.length - 1];
+        if (last.y < 90) demandLineData.push({ x: last.x, y: 90 });
+    }
+    const demandPeak = demandLineData.reduce((m, p) => Math.max(m, p.x || 0), 0);
+    const demandSuggestedMax = demandPeak > 0 ? demandPeak * 1.3 : 1;
+
+    // Supply: LCOE by latitude (per-cell scatter + median-per-band line).
+    const supplyRows = (lcoeResults || [])
+        .filter(r => r && r.meetsTarget && Number.isFinite(r.lcoe) && Number.isFinite(r.latitude))
+        .map(r => ({ latitude: r.latitude, metric: r.lcoe }));
+    const scatterData = supplyRows.map(r => ({ x: r.metric, y: r.latitude }));
+    const supplyLineData = _latBandStats(supplyRows)
+        .filter(s => Number.isFinite(s.p50))
+        .map(s => ({ x: s.p50, y: s.lat }))
+        .sort((a, b) => a.y - b.y);
+    const supplyXs = supplyLineData.map(p => p.x).concat(scatterData.map(p => p.x)).filter(Number.isFinite);
+    const supplyPeak = supplyXs.length ? Math.max(...supplyXs) : 0;
+    const supplySuggestedMax = supplyPeak > 0 ? supplyPeak * 1.05 : undefined;
+
+    const datasets = [
+        {
+            type: 'line', label: 'Population share (%)', data: demandLineData,
+            xAxisID: 'xDemand', yAxisID: 'y',
+            borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.22)',
+            borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, stepped: 'middle',
+            fill: 'origin', spanGaps: false, order: 2
+        },
+        {
+            type: 'line', label: 'Median LCOE ($/MWh)', data: supplyLineData,
+            xAxisID: 'xSupply', yAxisID: 'y',
+            borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0)',
+            borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 3, tension: 0.4,
+            fill: false, spanGaps: true, order: 1
+        },
+        {
+            type: 'scatter', label: 'LCOE solar + battery ($/MWh)', data: scatterData,
+            xAxisID: 'xSupply', yAxisID: 'y',
+            backgroundColor: 'rgba(52,211,153,0.25)', borderColor: 'rgba(52,211,153,0)',
+            pointRadius: 1.5, pointHoverRadius: 3, order: 3
+        }
+    ];
+
+    const options = {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        parsing: false, normalized: true,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                mode: 'nearest', intersect: false, axis: 'y',
+                callbacks: {
+                    title: (items) => {
+                        if (!items || !items.length) return '';
+                        const lat = items[0].parsed.y;
+                        return Number.isFinite(lat) ? `Latitude ${lat.toFixed(1)}°` : '';
+                    },
+                    label: (ctx) => {
+                        const ds = ctx.dataset;
+                        const v = ctx.parsed.x;
+                        if (!Number.isFinite(v)) return '';
+                        return ds.xAxisID === 'xDemand' ? `${ds.label}: ${v.toFixed(2)}%` : `${ds.label}: $${v.toFixed(0)}`;
+                    }
+                }
+            }
+        },
+        scales: {
+            xDemand: {
+                position: 'top',
+                title: { display: true, text: 'Population share (%)', color: '#fbbf24', font: { size: 11 } },
+                grid: { color: 'rgba(255,255,255,0.04)', drawOnChartArea: true },
+                ticks: { color: '#fbbf24', font: { size: 10 }, callback: (v) => `${Number(v).toFixed(1)}%` },
+                min: 0, suggestedMax: demandSuggestedMax
+            },
+            xSupply: {
+                position: 'bottom',
+                title: { display: true, text: 'LCOE solar + battery ($/MWh)', color: '#38bdf8', font: { size: 11 } },
+                grid: { color: 'rgba(255,255,255,0.04)', drawOnChartArea: false },
+                ticks: { color: '#38bdf8', font: { size: 10 }, callback: (v) => `$${Number(v).toFixed(0)}` },
+                min: 0, suggestedMax: supplySuggestedMax
+            },
+            y: {
+                min: -90, max: 90,
+                title: { display: true, text: 'Latitude', font: { size: 11 } },
+                ticks: { stepSize: 30, callback: (v) => `${v}°`, color: '#9ca3af', font: { size: 10 } },
+                grid: { color: 'rgba(255,255,255,0.06)' }
+            }
+        }
+    };
+
+    if (!latitudeChartInstance) {
+        latitudeChartInstance = new ChartJS(canvas.getContext('2d'), {
+            type: 'scatter', data: { datasets }, options, plugins: [_latWorldMapPlugin]
+        });
+    } else {
+        latitudeChartInstance.data.datasets = datasets;
+        latitudeChartInstance.options = options;
+        latitudeChartInstance.update();
+    }
 }
 
 export { ensureChartJsLoaded };

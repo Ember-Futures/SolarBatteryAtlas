@@ -62,6 +62,18 @@ export async function loadPopulationCsv() {
     }));
 }
 
+export async function loadVoronoiOverlappingCountriesCsv() {
+    const response = await fetch('../data/voronoi_overlapping_countries.csv');
+    if (!response.ok) {
+        throw new Error('Voronoi overlapping-countries CSV not found at ../data/voronoi_overlapping_countries.csv');
+    }
+    const rows = parseCsv(await response.text());
+    return rows.map(row => ({
+        location_id: Number(row.location_id),
+        country_names: row.country_names ? row.country_names.split('|') : []
+    }));
+}
+
 export async function loadGemPlantsCsv() {
     const response = await fetch('../data/gem_plants.csv');
     if (!response.ok) {
@@ -339,6 +351,9 @@ export async function loadPvoutPotentialCsv() {
         pvout_level1_data_area_km2: Number(row.pvout_level1_data_area_km2),
         pvout_level2_twh_y: Number(row.pvout_level2_twh_y),
         pvout_level2_data_area_km2: Number(row.pvout_level2_data_area_km2),
+        rooftop_twh_y: Number(row.rooftop_twh_y || 0),
+        total_level1_twh_y: Number(row.total_level1_twh_y ?? row.pvout_level1_twh_y),
+        total_level2_twh_y: Number(row.total_level2_twh_y ?? row.pvout_level2_twh_y),
         assumed_mw_per_km2: Number(row.assumed_mw_per_km2)
     }));
 }

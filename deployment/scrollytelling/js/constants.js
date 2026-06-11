@@ -52,6 +52,18 @@ export const POTENTIAL_MULTIPLE_BUCKETS = [
     { max: null, label: '1000×+', color: '#1F7A4E' }
 ];
 
+// Annual solar generation potential per person (ground + rooftop), MWh/person/yr.
+// Log-decade buckets (metric spans <1 to ~11M across zones, median ~1,260).
+// Same red→green ramp as the multiple buckets: red = little per person, green = abundant.
+export const POTENTIAL_PER_CAPITA_BUCKETS = [
+    { max: 10, label: '< 10', color: '#F6C9C9' },
+    { max: 100, label: '10–100', color: '#F2A65A' },
+    { max: 1000, label: '100–1,000', color: '#F2D96B' },
+    { max: 10000, label: '1,000–10,000', color: '#CDEB6A' },
+    { max: 100000, label: '10,000–100,000', color: '#6FC36A' },
+    { max: null, label: '100,000+', color: '#1F7A4E' }
+];
+
 export const POTENTIAL_TOTAL_COLORS = [
     '#F6C9C9',
     '#F2D96B',

@@ -54,8 +54,7 @@
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 
     <!-- Fonts -->
-    <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
         rel="stylesheet" />
@@ -85,9 +84,11 @@
             <!-- Header / Hero -->
             <header class="scrolly-hero" data-section="hero">
                 <div class="scrolly-hero-content">
-                    <div class="text-accent text-sm font-medium uppercase tracking-widest mb-4">Energy Transition</div>
+                    <div class="text-accent text-sm font-medium uppercase tracking-widest mb-4">The Electrotech
+                        Revolution</div>
                     <h1 class="scrolly-title">Harnessing the Sun</h1>
-                    <p class="scrolly-subtitle">How solar and batteries are turning intermittent sunshine into firm power</p>
+                    <p class="scrolly-subtitle">How solar and batteries are turning intermittent sunshine into firm
+                        power</p>
                     <div class="scrolly-byline">
                         <span>By Daan Walter, Kingsmill Bond, Sam Butler-Sloss, and Antoine Issac</span>
                         <span class="mx-2">•</span>
@@ -105,287 +106,310 @@
                 <div class="scrolly-section-content">
                     <h2 class="scrolly-heading">Introduction</h2>
 
-                    <p>In most of the world, new solar is now among the cheapest ways to make electricity. While few can argue with that point anymore, 
-                        a second one has taken its place: solar is cheap, but it cannot be trusted to keep the lights on by itself.</p>
+                    <p class="scrolly-drop-cap">For most of solar’s history, the main argument against it was cost.
+                        Solar panels were too
+                        expensive, and adding batteries to make supply dependable was more expensive still.</p>
 
-                    <p>In this article we investigate this claim. How much always-on electricity
-                        could can be supplied by solar plus battery, and how does that differ across the world? </p>
+                    <p>That has changed. Solar and batteries have followed the familiar path of manufactured
+                        technologies: deployment rose, costs fell, and new markets opened. In much of the world, solar
+                        is now among the cheapest sources of new electricity.</p>
 
-                    <p>To answer it, we cut the world into roughly 5,000 regions, each about the size of Belgium or
-                        Maryland. In every one we ask the hardest possible version of the question: can solar and storage
-                        alone serve a flat 1 MW load, the same power in every hour of the year, with nowhere to hide?</p>
+                    <p>The harder challenge now is reliability. Solar produces when the sun is available, while demand
+                        continues through evenings, nights and weak-sun periods. Batteries can help close that gap, but
+                        the scale of what they can do remains widely underestimated.</p>
 
-                    <p>A flat load is deliberately unfair. Real demand bends toward daylight, and real grids lean on
-                        trade, diversity, and flexible customers. We strip all of that away on purpose, because it
-                        removes the easy escape of moving demand to sunny hours. If solar and batteries can hold a
-                        constant load for most of the year under that constraint, a real system, with all its extra
-                        options, can only do better.</p>
+                    <p>We built a new model to test this reliability question directly. We divided the world into
+                        roughly 5,000 regions, each about the size of Belgium, and asked what it would take for solar
+                        and batteries to serve a constant 1 MW load in every hour of the year. The model includes no
+                        demand shifting, no grid imports, no wind, no hydro and no backup. Just solar, batteries and a
+                        flat load.</p>
 
-                    <p>What follows are ten key results from our analysis. Together they show how much of the world can already run on firm,
-                        always-on power from solar and batteries alone, and what it
-                        costs.</p>
+                    <p>This is a deliberately strict test. Real power systems have more options: demand varies by hour,
+                        grids trade across regions, customers can shift some use, and complementary technologies
+                        already exist. A flat load gives a hard and conservative benchmark for how close solar and
+                        batteries can get to firm power on their own.</p>
+
+                    <p>The results show that solar plus batteries can already provide high-uptime electricity across
+                        much of the world, at costs that are competitive in many of the places where demand is growing
+                        fastest. This article sets out nine findings.</p>
                 </div>
             </section>
 
-            <!-- Section 1: The Solar Paradox -->
+            <!-- Section 1: The world does not lack sunlight -->
             <section class="scrolly-section" data-section="potential-map" id="section-1">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">1. Solar energy is abundant everywhere</h2>
+                    <h2 class="scrolly-heading">1. Sunlight is abundant everywhere</h2>
 
-                    <p class="scrolly-drop-cap">We start with the simplest question, the one that ignores timing
-                        entirely: is there enough sunlight on usable land to match what people actually consume locally?</p>
+                    <p>We start with sizing the total potential of solar.. What is the potential of solar around the
+                        world?</p>
 
-                    <p>For most of the world the answer is yes, and not by a little. The map the the right measures each region's annual solar
-                        potential as a multiple of its local electricity demand. Apply realistic limits for suitable land, sensible
-                        build-out density, and real conversion efficiencies, and most regions still come out far ahead,
-                        many by 10×, 100×, even 1000×.</p>
+                    <p>The answer is simply: enormous. The sun supplies the Earth with thousands of times more
+                        energy than humanity uses. Even after applying limits on usable land, build density and
+                        conversion efficiency, solar potential remains far larger than local electricity demand in most
+                        regions.</p>
 
-                    <p>This abundance is not confined to the obvious places. The sunniest deserts and the tropics have
-                        the most, but temperate and higher-latitude regions also hold many times their own demand, given
-                        feasible land. They simply need a bit more of it to get there.</p>
+                    <p>The map to the right measures each region's constrained annual solar potential as a multiple of
+                        its local electricity demand. More than nine in ten people live in regions where that potential is at
+                        least ten times local demand; for over half of humanity it is more than a hundred times. 
+                        In absolute terms, the scale is striking: more than 95% of the global population lives in regions where 
+                        local solar potential per person is over twice current U.S. electricity demand per person, about 12 MWh/year. 
+                        For roughly two-thirds of humanity, local solar potential per person is even greater than Saudi Arabia’s oil 
+                        production per person.</p>
 
-                    <p>So the volume is not the problem. There is far more sunlight than we need almost everywhere. The
-                        problem is timing: getting the energy to the hour it is wanted. That is what the rest of this
-                        article is about.</p>
+                    <p>Globally, technically suitable land alone could generate around 185 times today's electricity
+                        consumption, and still about 125 times after stricter land-use exclusions (the "Policy"
+                        toggle).</p>
+
+                    <p>This abundance is central to the rest of the analysis. In effectively every region on Earth, the question 
+                        is not whether enough solar energy can be harvested over the course of a year; the annual potential is vast. 
+                        The real constraint is timing: making that energy available in the hours when it is needed. 
+                        Solve that timing problem, and the usable solar resource becomes enormous. </p>
                 </div>
             </section>
 
-            <!-- Section 2: Mapping the Solar Potential -->
-            <section class="scrolly-section" data-section="battery-shadow" id="section-2">
+            <!-- Section 2: Batteries make all the difference -->
+            <section class="scrolly-section" data-section="battery-capacity" id="section-2">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">2. Batteries make the sun shine at night</h2>
+                    <h2 class="scrolly-heading">2. Batteries make all the difference</h2>
 
-                    <p>Solar generation varies in two main ways. There is the daily swing of day and night, and the
-                        slower seasonal swing of summer and winter. The daily swing is by far the larger of the two, and
-                        it is the one batteries are built to solve.</p>
+                    <p>Once solar is cheap, overbuilding becomes the natural first lever to raise uptime. That works for
+                        a long time. More capacity raises annual generation, improves output in weaker hours and
+                        seasons, and increases the share of demand solar can serve.</p>
 
-                    <p>A battery takes the midday surplus, the solar that would otherwise be thrown away, and moves it to
-                        the hours after dark. In the weekly profile, the yellow is power used as the sun produces it, and
-                        the purple beneath it is that same sunlight, stored and served back at night. The season you
-                        select shifts the picture, and the seasonal swing is real, but the day-to-night gap dominates,
-                        and storage closes most of it.</p>
+                    <p>But only overbuildign solar eventually runs into limits. Additional panels keep adding energy, yet
+                        less of it arrives in the hours that set uptime. In our simulations, even a twenty-fold
+                        overbuild never carries a solar-only system past about 47% of a flat load, anywhere on Earth.
+                        Annual generation becomes abundant while reliability stays capped by timing.</p>
 
-                    <p>As storage grows, two things happen at once, both mechanically. Less solar is wasted, because more
-                        of the midday peak is captured. And the delivered power gets steadier hour to hour, until a
-                        jagged solar signal starts to look like a flat line.</p>
+                    <p>Batteries are the game changer. They turn curtailed output into usable supply and move solar from a
+                        resource that can cover a large share of energy demand into one that can cover a large share of
+                        hours. Watch the map as the battery grows from 0 to 24 MWh: uptime fills in, evenings first,
+                        then nights, then the weak-sun days within a week. Regions home to more than 90% of the world's 
+                        population can reach 80% uptime, large parts of the world move into the 80–90% range, and favourable 
+                        regions push past 95%, without any other backup.</p>
+
+                    <p>This is why the relevant unit of analysis is not solar alone, but a solar-battery system: cheap 
+                        generation paired with enough storage to shift it into the hours when it is needed.</p>
+
                 </div>
             </section>
 
-            <!-- Section 3: Batteries can take us surprisingly far toward baseload -->
-            <section class="scrolly-section" data-section="battery-capacity" id="section-3">
+            <!-- Section 3: Most solar variability is daily -->
+            <section class="scrolly-section" data-section="battery-shadow" id="section-3">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">3. Batteries make all the difference</h2>
+                    <h2 class="scrolly-heading">3. Batteries work because most solar variability is daily</h2>
 
-                    <p>Solar is "intermittent," the story goes, so it must be propped up one-for-one by something firm
-                        before it counts as real power. The simulations show something different. Reliability comes in
-                        degrees, and storage is the dial.</p>
+                    <p>Batteries have such a large effect because, for most of the world, the dominant solar balancing
+                        problem is daily rather than seasonal.</p>
 
-                    <p>As the battery grows from zero to 24 MWh, uptime fills in, in order: evenings first, then nights,
-                        then the weak-sun days that appear within any given week. A modest battery already carries many
-                        regions to 80 to 90% uptime.</p>
+                    <p>Seasonality matters, especially at higher latitudes. It sets much of the difficulty in reaching
+                        very high uptime in places with weak winter output. Across most populated regions, however, the
+                        recurring day-night cycle accounts for the largest and most predictable gap between solar
+                        output and a flat load.</p>
 
-                    <p>The jump from roughly 60% to 90% uptime is not a small one. At 60%, power fails often enough that
-                        you still need a full backup for anything that matters. At 90%, it becomes dependable enough to
-                        run a home or a business on directly, with only rare gaps left to cover. Storage is what moves a
-                        region from the first state to the second.</p>
+                    <p>This makes short-duration storage unusually powerful. A few hours of storage can absorb a large
+                        share of otherwise curtailed output and shift it into the hours that determine uptime. The
+                        system does not need to solve seasonal storage before solar-plus-battery becomes valuable; it
+                        first needs to solve the daily cycle.</p>
+
+                    <p>The hourly profiles show this most clearly. In the weekly animation, yellow represents solar used as it is
+                        produced and purple is the same sunlight served back after dark. Switch seasons and the
+                        seasonal swing is visible, but the main swing pattern remains the daily surplus and
+                        deficit of day/night. Batteries are well matched to that pattern, which is why they lift uptime so sharply
+                        across much of the world.</p>
                 </div>
             </section>
 
-            <!-- Section 4: This is not just for desert countries -->
-            <section class="scrolly-section" data-section="widespread" id="section-4">
+            <!-- Section 4: Cheap exactly where most people live -->
+            <section class="scrolly-section" data-section="cheap-populous" id="section-4">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">4. High uptime solar plus batteries can be found in many places</h2>
+                    <h2 class="scrolly-heading">4. Solar plus batteries are cheap exactly where most people live</h2>
 
-                    <p>High-uptime solar has a reputation as a boutique product: a handful of flagship projects in
-                        exceptionally sunny places, and not much else.</p>
+                    <p>Having covered the physics, let us turn to economics. It is increasingly accepted that solar-plus-battery systems are now cheap. 
+                        What is less widely understood is that they are cheapest precisely where most people on Earth live.</p>
 
-                    <p>So we tested it. We took one fixed system, the configuration behind a landmark project completed
-                        last year in the desert of the United Arab Emirates (6 MW DC of solar paired with ~20 MWh of
-                        storage), and applied that identical setup to all ~5,000 regions, with no local tuning. The map
-                        shows what each one delivers.</p>
+                    <p>When we run the numbers using today’s solar and battery costs from the IEA and BNEF, the result is striking: around 80% of the global 
+                        population can get 80% uptime solar-plus-storage power for less than $100/MWh, and for half of humanity the cost is below about $80/MWh. 
+                        That is already competitive with the average cost of power generation today, which is typically around $100/MWh. 
+                        This is also a strict benchmark: it assumes a flat demand profile, with no demand shifting, no grid imports, and no other flexibility options. </p>
 
-                    <p>The result is not a scatter of dots. Very high uptime spreads across the tropics and subtropics
-                        and reaches well into temperate latitudes. What makes it work is the pairing of decent average
-                        sunlight with a seasonal swing small enough for the battery to absorb. Strong desert sun helps,
-                        but it is not required, and that pairing turns out to be common across much of the world.</p>
-                </div>
-            </section>
+                    <p>The reason for the economic potential of solar is simple geography. Cheap solar-plus-storage requires enough sunlight, manageable
+                        seasonality and low enough system costs. That combination is common across the global sunbelt:
+                        India, Southeast Asia, much of Africa, Latin America, the Middle East, and parts of southern
+                        Europe and North America. </p>
 
-            <!-- Section 5: High-uptime solar is cheapest where people live -->
-            <section class="scrolly-section" data-section="cheap-populous" id="section-5">
-                <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">5. High uptime solar is cheap exactly where most people live</h2>
-
-                    <p>The best sunlight on Earth sits in empty deserts. But economic viability does not need the best
-                        resource, only one that is good enough, paired with costs that are low enough. That combination
-                        is far more widespread than the best-resource map suggests.</p>
-
-                    <p>On global-average costs for panels, batteries, and financing, the cheapest high-uptime power
-                        clusters along the global sunbelt: India, Southeast Asia, much of sub-Saharan Africa, and Latin
-                        America. These low-cost, high-uptime regions are home to billions of people. The cheapest firm
-                        solar shines on many of the world's most populous places.</p>
-
-                    <p>Using one global cost set first is deliberate. It isolates the physical signal, showing where
-                        sunlight and seasonality alone make solar cheapest. Layering in local costs then adds the
-                        macroeconomic reality on top, above all the cost of capital, which varies enormously between
-                        countries and can make or break a capital-heavy project. The dollar figures shift, sometimes
-                        sharply, but the underlying geography holds: where the sun is strong and the seasons are mild,
-                        solar-plus-storage stays among the cheapest firm power anywhere. That gap between global and
-                        local also points to an opportunity. Where local financing is expensive, bringing the cost of
-                        capital down would unlock even cheaper solar-plus-storage on top of the physical resource already
+                    <p>More than 90% of the global population lives between 45 degrees north and 45 degrees south. A
+                        large share of current electricity demand sits in regions where the solar resource is good
+                        enough and the seasonal profile is manageable. As we will see, future demand growth is even more concentrated
                         there.</p>
+
+                    <p>Of course good geography does not always come with cheap capital. Many of the regions with the strongest 
+                        solar resources also face higher borrowing costs, raising the cost of capital and the delivered cost of electricity. 
+                        The map’s local-cost view shows how much this impacts cost. Even then, the central result holds: across much of the emerging world, 
+                        solar-plus-storage remains structurally low-cost because the underlying resource is so strong.</p>
                 </div>
             </section>
 
-            <!-- Section 6: Cheap exactly where electricity access is weakest -->
-            <section class="scrolly-section" data-section="cheap-access" id="section-6">
+            <!-- Section 5: Cheap where electricity is missing -->
+            <section class="scrolly-section" data-section="cheap-access" id="section-5">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">6. High uptime solar can help resolve the last mile problem of electricity access</h2>
+                    <h2 class="scrolly-heading">5. Solar plus batteries are cheap where electricity is missing</h2>
 
-                    <p>In much of the low- and middle-income world, the constraint on electricity is rarely just
-                        generation. Generation is often short too, but the harder problem is delivery: grid reach, grid
-                        quality, and the cost of extending and maintaining distribution out to dispersed customers. Even
-                        where power is produced, reliable supply can lag for years.</p>
+                    <p>Around 760 million people still lack access to electricity. Their current options are no
+                        electricity, kerosene, diesel generators, battery charging shops, or waiting years for grid
+                        extension.</p>
 
-                    <p>These same regions, shaded red here for the highest concentrations of people without dependable
-                        access, are the ones that performed well earlier for solar-plus-storage: strong yields, mild
-                        seasons. The resource is best where the grid is weakest.</p>
+                    <p>Many of these communities, shown in red on the map, are in regions with strong sunlight, mild seasonality, 
+                        and low solar-plus-storage costs. In other words, many people still without electricity live in exactly the 
+                        places where solar and batteries can already provide some of the cheapest power on Earth. Some 89% of people 
+                        without access live where that 80%-uptime cost is under $80/MWh; effectively 100% under $100/MWh.</p>
+                        
+                    <p>The advantage is not only cost, but proximity. Local solar and batteries can generate, store, and deliver 
+                        electricity close to demand, reducing the need to extend centralised infrastructure across long distances 
+                        before service can begin.</p>
 
-                    <p>For those communities, the honest comparison is not solar against a flawless grid. It is
-                        solar-plus-storage against the service people actually receive today, which is often little or
-                        none. Measured that way, local solar does not have to be perfect. It has to beat nothing, and it
-                        has to be affordable. It can now do both.</p>
+                    <p>The sun has reaches every village in the world every day. The technologies to harvest and
+                        store its energy have now become cheap enough to matter, and can provide affordable electricity for all.</p>
                 </div>
             </section>
 
-            <!-- Section 7: Better uptime than many existing grids -->
-            <section class="scrolly-section" data-section="better-uptime" id="section-7">
+            <!-- Section 6: Already beating many grids on uptime -->
+            <section class="scrolly-section" data-section="better-uptime" id="section-6">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">7. Even without backup, solar plus battery reliability can already exceed many grids</h2>
+                    <h2 class="scrolly-heading">6. Solar plus batteries can already beat many grids on uptime</h2>
 
-                    <p>The last section looked at people with no electricity at all. There is a second, larger group:
-                        the billions who have a connection on paper but live with a grid that fails constantly. Outages,
-                        load shedding, and voltage swings are common enough that households and businesses already pay
-                        for backup: diesel generators, home battery units, or the plain cost of going dark. The left
-                        chart counts them. More than 2 billion people live below the &gt;99% uptime that wealthy
-                        countries take for granted, and many endure grid uptime well below 70 or 80%.</p>
-                     
-                     <p>Making a centralized grid that reliable is possible, but expensive, because reliability has to be
-                        built into every layer: spare generation, redundant transmission, hardened distribution, and
-                        last-mile maintenance that never stops.</p>
-                     
-                     <p>The right chart shows what it costs to match each level of grid reliability with solar and
-                        storage instead. For most of these customers, near-perfect uptime was never the benchmark,
-                        because they have never had it. The benchmark is the power they get today, all-in: tariffs, fees,
-                        damaged appliances, downtime, and the spending it takes to bridge an outage. Against that,
-                        solar-plus-battery does not need to beat the world's best grids. It needs to be <em>more
-                        dependable</em> than the grid in front of the customer, and <em>cheaper per usable
-                        kilowatt-hour</em> than what they buy now.</p>
-                     
-                     <p>This is the textbook opening from Christensen's <em>The Innovator's Dilemma</em>: a vast,
-                        under-served market the incumbents do not want. Utilities and grid planners are built to optimise
-                        dense demand, regulated returns, and large projects, not millions of dispersed, price-sensitive
-                        customers who need power that is good enough, cheap enough, now.</p>
-                     
-                     <p>In that market, solar-plus-battery is already good enough, because it delivers higher uptime and
-                        lower delivered cost at the same time. For the first time these customers can buy power that is
-                        both more reliable and cheaper than what they have. That is what lets it take hold, and from
-                        there the familiar pattern follows: costs keep falling, performance keeps climbing, and a
-                        technology that began as backup grows into primary power.</p>
+                    <p>An even larger group in emerging economies do have an electricity connection, yet still have
+                        very poor service. In our data, close to 2 billion people are connected to grids that deliver
+                        less than 99% uptime; counting those with no access at all, over 2.5 billion people live
+                        without dependable electricity. They face outages, load shedding, voltage swings, damaged
+                        appliances, lost business hours and high spending on emergency backup.</p>
 
+                    <p>For these customers, the benchmark for solar plus battery to beat is the grid they actually
+                        experience. In many places, 80–90% uptime from solar plus batteries would be a major
+                        improvement, especially if it comes with lower delivered costs and reduced diesel use. The left
+                        chart counts the people at each level of grid reliability; the right chart shows what it costs
+                        to match that reliability with solar and storage instead. It shows how nine out of ten people
+                        could be served more reliably by solar and storage at a price at or below$70/MWh.</p>
+
+                    <p>Solar plus batteries do not need to match the world's best grids before they become useful. They
+                        can rapidly scale in markets where the incumbent system currently fails to deliver reliable
+                        power.</p>
+
+                    <p>This creates a large early market from which to scale. This is not just theoretical: solar and 
+                        battery uptake is surging across emerging markets today, as seen in countries like India, Pakistan, and Kenya.</p>
                 </div>
             </section>
 
-            <!-- Section 8: Cheap back-up covers the last gap to 100% uptime -->
-            <section class="scrolly-section" data-section="backup-cost" id="section-8">
+            <!-- Section 7: From 90-95% to 100% needn't be expensive -->
+            <section class="scrolly-section" data-section="backup-cost" id="section-7">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">8. Reaching 100% uptime needn't be expensive</h2>
+                    <h2 class="scrolly-heading">7. Getting from 90–95% to 100% needn't be expensive</h2>
 
-                    <p>The last map stopped just short of a perfect 100%, and for good reason. Squeezing the final few
-                        percent out of solar and batteries alone is brutally expensive: it takes a pile of extra panels
-                        and storage that sit idle almost the entire year, earning their keep only on the dimmest
-                        stretches.</p>
+                    <p>Solar plus batteries can get close to firm power in many regions. The cost challenge rises
+                        sharply only when solar and batteries are required to cover every last hour by themselves.
+                        Pushing from 95% to 99% uptime raises the typical cost by around $10-15/MWh, a roughly 20%
+                        increase, and in harder regions by $30/MWh or more. Pushing from 99% to 100% can be more than double this amount.</p>
 
-                    <p>But solar and batteries do not have to close that gap by themselves. A cheap generator, a diesel
-                        genset at a few hundred dollars per kilowatt, can cover it. The genset itself adds only about 3 to
-                        5 dollars per MWh to the blended cost of power. It runs just the 5 to 10% of the year when
-                        solar-plus-battery falls short, and the diesel it burns over those weeks adds roughly another 15
-                        to 20. Even all-in, that backup raises the blended cost of power by only about 20 dollars per MWh.
-                        It works as cheap insurance for the worst stretches.</p>
+                    <p>The constraint is utilisation. The final few percent of hours are rare. Covering them with only
+                        solar and batteries requires extra panels and storage that sit unused for most of the year.</p>
 
-                    <p>The map shows the all-in cost of a true 100%-uptime system once that backup fills the gap. Toggle
-                        it off and you see what solar-plus-battery reaches on its own, around 90%. Toggle it on and you
-                        reach 100%. The difference between the two, shown as <em>back-up cost only</em>, is the price of
-                        that last stretch, and across most of the sunbelt it stays small.</p>
+                    <p>A real power system has more options. Once solar plus batteries provide 90–95% of annual supply,
+                        the remaining hours can be covered by a cheap firming resource such as a gas turbine, diesel
+                        generator, hydro, interconnection, demand response or another dispatchable technology.</p>
 
-                    <p>That redraws the reliability debate. "Firm" no longer has to mean a thermal plant grinding away
-                        around the clock. It can mean cheap, abundant solar, a battery for the daily cycle, and a small
-                        generator that wakes only for the small slice of the year when the sun falls short.</p>
+                    <p>The simplest case is a gas turbine or diesel generator. They are cheap and only need to run when
+                        solar and batteries fall short, perhaps 5–10% of the year. Because these plants are cheap to
+                        build and run so rarely, their costs are modest when spread across the whole electricity
+                        supply.</p>
+
+                    <p>In most regions, adding gas or diesel backup to solar plus battery to turn 90–95% uptime to 100% uptime 
+                        only raises cost by about $10–25/MWh. Only $3–8/MWh of that is needed to pay for the backup plant itself; the 
+                        rest is fuel. The reason the cost stays modest is that solar and batteries still provide the 
+                        bulk of the energy, while the backup unit only covers the small tail of hours when they fall short. </p>
                 </div>
             </section>
 
-            <!-- Section 9: High-uptime solar is cheapest where new capacity is being planned -->
-            <section class="scrolly-section" data-section="planned-capacity" id="section-9">
+            <!-- Section 8: Planned fossil capacity is exposed -->
+            <section class="scrolly-section" data-section="planned-capacity" id="section-8">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">9. High uptime solar is cheap exactly where other "firm" capacity is being planned right now</h2>
+                    <h2 class="scrolly-heading">8. Planned fossil capacity is exposed</h2>
 
-                    <p>Electricity demand is still climbing, hardest in emerging economies. Their planning documents
-                        answer it the familiar way: gigawatts of new "firm" capacity, mostly coal, gas, and nuclear,
-                        booked years in advance.</p>
+                    <p>Many countries are still planning new coal and gas capacity for baseload generation to meet
+                        rising electricity demand. A large share of this planned capacity is located in regions where
+                        solar plus batteries are already cheap.</p>
 
-                    <p>Those plants are concentrated in precisely the climates where solar-plus-storage already reaches
-                        high uptime at low cost. The chart stacks that planned capacity by fuel against the cost of the
-                        solar alternative in the same place: bar by bar, gigawatts of coal, gas, and nuclear queued up in
-                        regions where firm solar is already cheaper. This overlap has a simple cause. The economies adding
-                        demand fastest, across South Asia, Southeast Asia, Africa, and Latin America, mostly sit at low
-                        latitudes where the sun is strong, so the fastest-growing demand and the best solar resource land
-                        in the same places.</p>
+                    <p>Of the roughly 850 GW of planned coal and gas capacity in the GEM dataset, around 590 GW, about 70%,
+                        sits in regions where solar plus batteries can already deliver 80% uptime power for less than
+                        $100/MWh. The chart stacks that planned capacity against the cost of the solar alternative in
+                        the same place. These are often regions with fast demand growth, strong solar resources,
+                        growing populations and weak or incomplete grids.</p>
 
-                    <p>This does not mean solar erases every plant on every grid. It means the reflex that firm power
-                        must burn something is no longer a safe default across a large and growing share of the world.</p>
+                    <p>This does not imply a simple one-for-one replacement of every planned plant. Power systems need
+                        capacity, flexibility, reserves and grid infrastructure. But the default assumption that rising
+                        electricity demand requires new fossil capacity is increasingly outdated in many regions.
+                        Instead of a baseload coal plant, perhaps a solar plus battery site at 75% uptime also suffices. Or
+                        instead of an expensive baseload gas plant, a cheaper back-up plant plus solar and battery for
+                        the bulk of power may be a better fit.</p>
+
+                    <p>Planners now need to compare new coal and gas plants against solar-plus-storage systems that can
+                        provide high-uptime electricity at competitive cost. In many growth markets, that comparison
+                        will show that solar plus battery beats any pure-play fossil projects on cost now.</p>
                 </div>
             </section>
 
-            <!-- Section 10: Getting cheaper over time -->
-            <section class="scrolly-section" data-section="lcoe-outlook" id="section-10">
+            <!-- Section 9: Falling costs turn affordable into irresistible -->
+            <section class="scrolly-section" data-section="lcoe-outlook" id="section-9">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">10. Costs will continue to fall and further increase competitiveness </h2>
+                    <h2 class="scrolly-heading">9. Falling costs turn affordable into irresistible</h2>
 
-                    <p>Every map so far has used today's costs. That is the conservative case.</p>
+                    <p>All of the analysis so far uses today's costs. Solar and batteries are manufactured technologies,
+                        and their costs are still falling.</p>
 
-                    <p>Solar and batteries have only ever gotten cheaper, and almost every outlook expects the fall to
-                        continue. The latest IEA and BNEF projections see the installed cost of solar and battery
-                        projects falling by as much as half by 2050. As the slider advances from 2024 toward 2050,
-                        regions that are already cheap get cheaper, and regions sitting just outside competitiveness cross
-                        the line into it.</p>
+                    <p>Deployment increases manufacturing scale. Scale reduces costs. Lower costs open new markets.
+                        Those markets support further deployment. Solar has followed this path for decades, and
+                        batteries are now moving through a similar phase.</p>
 
-                    <p>The viability map is not static. It widens every year as costs fall, and the direction of travel
-                        only runs one way. Whatever the picture looks like today, the cost curve is still bending in
-                        solar's favour.</p>
+                    <p>Today's affordability map is therefore not fixed. As time advances toward 2050, regions
+                        that are already cheap become cheaper, and regions just outside competitiveness cross the line.
+                        The global area where solar plus batteries can provide high-uptime electricity at low cost
+                        expands over time.</p>
+
+                    <p>By 2030, our analysis suggests that more than three quarters of the world's population could get
+                        80% uptime solar-plus-storage power for less than $80/MWh, and 90% of the world for less than
+                        $100/MWh.</p>
+
+                    <p>Power plants are long-lived assets. A coal or gas plant planned today will operate for decades.
+                        During that time, the solar-plus-storage alternative is likely to keep getting cheaper and
+                        cheaper. What is competitive today will become irresistible in a decade.</p>
                 </div>
             </section>
 
-            <!-- Section 11: The Path Forward -->
-            <section class="scrolly-section" data-section="path-forward" id="section-11">
+            <!-- Section 10: Conclusion -->
+            <section class="scrolly-section" data-section="path-forward" id="section-10">
                 <div class="scrolly-section-content">
-                    <h2 class="scrolly-heading">The path forward</h2>
+                    <h2 class="scrolly-heading">Conclusion</h2>
 
-                    <p>Put together, the ten results point in a single direction. Solar energy is abundant almost
-                        everywhere, many times over what each region consumes. The problem was never the resource, only
-                        the timing, and batteries solve most of it. Paired with storage, solar can serve the large
-                        majority of a constant load, as much as 95% in many regions, deserts and temperate latitudes
-                        alike, with no backup at all.</p>
+                    <p>The old debate was about whether solar was cheap enough. That question has largely been
+                        answered. The remaining debate is reliability: how far solar and batteries can go in providing
+                        dependable power, and at what cost.</p>
 
-                    <p>That power is cheapest where most people live, and where grids today are weakest or missing
-                        entirely. It is already more dependable than the grid many of those people have. A small diesel
-                        generator closes the final gap to 100% cheaply: a few dollars per MWh for the genset, plus
-                        roughly 15 to 20 for the fuel it burns covering the last few percent. And it is cheap in exactly
-                        the places now planning new coal, gas, and nuclear, with costs still falling year after year.</p>
+                    <p>The results suggest they can go much further than most power planning assumes. Solar resources
+                        are large enough almost everywhere. Overbuilding turns cheap sunlight into abundant annual
+                        energy. Batteries move that energy into the hours when it is needed. Together, they can already
+                        supply high-uptime power across much of the world, especially where people live, where grids
+                        are weakest, and where demand is growing fastest.</p>
 
-                    <p class="scrolly-final">So the physics works, and increasingly so do the economics. What remains is
-                        a question of speed: who clears the permitting queues first, fixes the financing, and rewrites
-                        rules still built for thermal plants. Firm power no longer has to burn anything. The question now
-                        is who races toward solar the fastest.</p>
+                    <p>Where solar plus batteries reach 90–95% uptime, the last few percent of hours can often be
+                        covered with a small amount of dispatchable backup at modest incremental cost. That turns 100%
+                        uptime from a fatal objection into a system design problem.</p>
+
+                    <p>The implications are largest in emerging economies. Solar plus batteries are cheap where
+                        electricity is still missing, can outperform many unreliable grids, and are already competitive
+                        in many regions where new fossil capacity is planned.</p>
+
+                    <p>And this is before the next decade of cost declines. Every year, solar and batteries get
+                        cheaper; every year, the case for building around them gets stronger. The question is no longer
+                        whether the sun can power the world. It is how quickly we build the systems that let it.</p>
 
                     <div class="scrolly-cta">
                         <a href="../index.html" class="scrolly-button">
@@ -423,7 +447,10 @@
                         </div>
                         <div>
                             <strong class="text-gray-300">Grid Reliability & Access:</strong>
-                            <p>HREA (High Resolution Electricity Access)</p>
+                            <p>High Resolution Electricity Access (HREA), University of Michigan; Min et al. (2024),
+                                <em>Joule</em> 8, 1–17
+                                (<a href="https://hrea.isr.umich.edu/data.html" target="_blank"
+                                    rel="noopener noreferrer" class="underline hover:text-gray-300">hrea.isr.umich.edu/data.html</a>)</p>
                         </div>
                         <div>
                             <strong class="text-gray-300">Cost of Capital (WACC):</strong>
@@ -431,7 +458,8 @@
                         </div>
                         <div>
                             <strong class="text-gray-300">Local CAPEX & Back-up Fuel Prices:</strong>
-                            <p>Regional CAPEX (IRENA/IEA/BNEF); retail diesel prices (World Bank / GlobalPetrolPrices); wholesale gas prices (IGU Wholesale Gas Price Survey 2025, 2024 data)</p>
+                            <p>Regional CAPEX (IRENA/IEA/BNEF); retail diesel prices (World Bank / GlobalPetrolPrices);
+                                wholesale gas prices (IGU Wholesale Gas Price Survey 2025, 2024 data)</p>
                         </div>
                     </div>
                     <div class="mt-8 pt-4 border-t border-white/10 text-center text-xs text-gray-500">
@@ -445,6 +473,20 @@
         <div class="scrolly-visual" id="visual-panel">
             <!-- Map Container -->
             <div id="map" class="absolute inset-0 z-0 bg-[#0a0a0a]"></div>
+
+            <!-- Section 4: Map / Chart toggle (Demand & Supply by Latitude) -->
+            <div id="latitude-view-toggle"
+                class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-surface/80 backdrop-blur border border-white/10 rounded-full p-1 flex gap-1">
+                <button data-latview="map"
+                    class="px-3 py-1 text-[10px] font-medium rounded-full bg-white/10 text-white transition-colors hover:bg-white/20">Map</button>
+                <button data-latview="chart"
+                    class="px-3 py-1 text-[10px] font-medium rounded-full text-gray-400 transition-colors hover:text-white hover:bg-white/10">Chart</button>
+            </div>
+
+            <!-- Section 4: Demand & Supply by Latitude chart (covers the map area when active) -->
+            <div id="latitude-chart-container" class="hidden">
+                <div class="latitude-chart-canvas-wrap"><canvas id="latitude-chart-canvas"></canvas></div>
+            </div>
 
             <!-- Subtle loader shown only while a section's map is still computing -->
             <div id="map-loader" class="map-loader" aria-hidden="true">
@@ -463,7 +505,6 @@
                 <div class="section-dot" data-target="section-8"></div>
                 <div class="section-dot" data-target="section-9"></div>
                 <div class="section-dot" data-target="section-10"></div>
-                <div class="section-dot" data-target="section-11"></div>
             </div>
 
             <!-- Visual Label -->
@@ -480,6 +521,15 @@
                         class="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-600 text-white shadow-sm">Technical</button>
                     <button data-level="level2"
                         class="px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Policy</button>
+                </div>
+                <div class="text-[10px] text-gray-400 uppercase tracking-wider mt-1.5">Show as</div>
+                <div class="grid grid-cols-2 bg-white/5 rounded p-0.5" id="potential-display-toggle-buttons">
+                    <button data-display="multiple"
+                        class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-600 text-white shadow-sm">×
+                        Demand</button>
+                    <button data-display="per_capita"
+                        class="px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-white">Per
+                        capita</button>
                 </div>
                 <div id="potential-toggle-help" class="text-[10px] text-gray-400 leading-snug">
                     Technical: physical suitability + resource constraints only.
@@ -501,18 +551,20 @@
 
             <!-- Legend (LCOE) - Hidden by default -->
             <div id="legend-lcoe" class="visual-legend hidden">
-                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">LCOE ($/MWh)</div>
-                <div class="w-full h-2 rounded-full mb-2 legend-gradient-cost"></div>
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1.5">LCOE ($/MWh)</div>
+                <div class="w-full h-2 rounded-full mb-1 legend-gradient-cost"></div>
                 <div class="flex justify-between text-[10px] font-mono text-gray-500">
                     <span id="legend-lcoe-min">--</span>
                     <span id="legend-lcoe-mid">--</span>
                     <span id="legend-lcoe-max">--</span>
                 </div>
+                <div id="legend-lcoe-note" class="hidden text-[10px] text-gray-400 leading-snug mt-1.5"></div>
             </div>
 
-            <!-- Legend (Potential Multiple) - Hidden by default -->
+            <!-- Legend (Potential) - Hidden by default. Title/buckets switch with the display mode. -->
             <div id="legend-potential" class="visual-legend hidden">
-                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                <div id="legend-potential-title"
+                    class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
                     Solar Potential / Demand (×)
                 </div>
                 <div id="legend-potential-buckets" class="space-y-1 text-[10px] text-gray-400"></div>
@@ -542,19 +594,39 @@
 
             <!-- Legend (Uptime Comparison) - Hidden by default -->
             <div id="legend-uptime" class="visual-legend hidden">
-                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Grid Reliability</div>
-                <div class="w-full h-2 rounded-full mb-2"
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1.5">Grid Reliability</div>
+                <div class="w-full h-2 rounded-full mb-1"
                     style="background: linear-gradient(to right, #ef4444, #000000);"></div>
                 <div class="flex justify-between text-[10px] font-mono text-gray-500">
-                    <span>0% (Fragile)</span>
-                    <span>100% (Robust)</span>
+                    <span>0%</span>
+                    <span>100%</span>
+                </div>
+                <div class="flex justify-between text-[9px] text-gray-600 leading-none">
+                    <span>Fragile</span>
+                    <span>Robust</span>
+                </div>
+            </div>
+
+            <!-- Legend (People Without Electricity - Section 5) - Hidden by default -->
+            <div id="legend-no-access" class="visual-legend hidden">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1.5">Without Power</div>
+                <div class="w-full h-2 rounded-full mb-1"
+                    style="background: linear-gradient(to right, #1e293b, #991b1b, #ff0000);"></div>
+                <div class="flex justify-between text-[10px] font-mono text-gray-500">
+                    <span>0%</span>
+                    <span>100%</span>
+                </div>
+                <div class="flex justify-between text-[9px] text-gray-600 leading-none">
+                    <span>Universal access</span>
+                    <span>No access</span>
                 </div>
             </div>
 
             <!-- Legend (Weekly Animation) - Hidden by default -->
             <div id="legend-weekly" class="visual-legend hidden">
-                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Energy Share (1 MW load)
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-0.5">Hourly generation
                 </div>
+                <div class="text-[10px] text-gray-500 mb-3 normal-case tracking-normal">Each hour of one week, serving a 1 MW load</div>
                 <div class="space-y-2">
                     <div class="flex items-center gap-2">
                         <div class="w-3 h-3 rounded-sm bg-[#facc15]"></div>
@@ -573,36 +645,37 @@
 
             <!-- Animation Indicator -->
             <div id="animation-indicator"
-                class="hidden absolute top-6 right-8 bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-lg min-w-[340px]">
-                <div class="flex flex-col gap-3">
-                    <div class="flex items-center gap-2 border-b border-white/10 pb-1 mb-1">
-                        <span class="material-symbols-outlined text-accent animate-pulse">battery_charging_full</span>
-                        <div class="text-[11px] text-gray-300">
+                class="hidden absolute top-5 right-6 bg-surface/90 backdrop-blur-md border border-white/10 rounded-lg p-2 shadow-lg w-[300px]">
+                <div class="flex flex-col gap-1.5">
+                    <div class="flex items-center gap-1.5 border-b border-white/10 pb-1">
+                        <span
+                            class="material-symbols-outlined text-accent animate-pulse text-[16px] leading-none">battery_charging_full</span>
+                        <div class="text-[10px] text-gray-300">
                             For <span class="text-white font-medium">1 MW</span> baseload:
                         </div>
                     </div>
 
-                    <div id="weekly-controls" class="space-y-2">
+                    <div id="weekly-controls" class="space-y-1.5">
                         <div class="space-y-1">
-                            <div class="text-[10px] text-gray-400 uppercase tracking-wider">Configuration</div>
-                            <div id="weekly-config-toggle" class="grid grid-cols-4 gap-1 bg-white/5 rounded p-1">
+                            <div class="text-[9px] text-gray-400 uppercase tracking-wider">Configuration</div>
+                            <div id="weekly-config-toggle" class="grid grid-cols-4 gap-1 bg-white/5 rounded p-0.5">
                                 <button data-config="simplistic"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
                                     Simplistic
                                     <span class="block text-[9px] text-gray-500 leading-tight">1 MW solar</span>
                                 </button>
                                 <button data-config="overbuilt"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
                                     Overbuilt
                                     <span class="block text-[9px] text-gray-500 leading-tight">6 MW solar</span>
                                 </button>
                                 <button data-config="overbuilt-storage"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
                                     Overbuilt + storage
                                     <span class="block text-[9px] text-gray-500 leading-tight">6 MW + 16 MWh</span>
                                 </button>
                                 <button data-config="high-uptime"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors leading-tight text-center">
                                     High uptime
                                     <span class="block text-[9px] text-gray-500 leading-tight">10 MW + 30 MWh</span>
                                 </button>
@@ -610,42 +683,55 @@
                         </div>
 
                         <div class="space-y-1">
-                            <div class="text-[10px] text-gray-400 uppercase tracking-wider">Season</div>
-                            <div id="weekly-season-toggle" class="grid grid-cols-4 gap-1 bg-white/5 rounded p-1">
+                            <div class="text-[9px] text-gray-400 uppercase tracking-wider">Season</div>
+                            <div id="weekly-season-toggle" class="grid grid-cols-4 gap-1 bg-white/5 rounded p-0.5">
                                 <button data-season="spring"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Spring</button>
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Spring</button>
                                 <button data-season="summer"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Summer</button>
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Summer</button>
                                 <button data-season="fall"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Fall</button>
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Fall</button>
                                 <button data-season="winter"
-                                    class="px-2 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Winter</button>
+                                    class="px-1.5 py-1 rounded text-[10px] font-medium text-gray-400 hover:text-white transition-colors text-center">Winter</button>
                             </div>
                         </div>
                     </div>
 
                     <div id="battery-capacity-controls" class="hidden space-y-2">
                         <div class="space-y-1">
-                            <div class="text-[10px] text-gray-400 uppercase tracking-wider">Solar</div>
-                            <div class="flex items-center justify-between text-xs text-gray-300">
-                                <span>Solar:</span>
-                                <span class="font-mono text-primary"><span id="solar-value-display">6</span> MW</span>
+                            <div class="flex items-center justify-between text-[10px]">
+                                <span class="text-gray-400 uppercase tracking-wider">Solar</span>
+                                <span class="font-mono text-solar"><span id="solar-value-display">1</span> MW</span>
                             </div>
-                            <input type="range" id="solar-slider" min="1" max="10" value="6" step="1"
-                                class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-colors">
+                            <input type="range" id="solar-slider" min="1" max="10" value="1" step="1"
+                                class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-solar">
+                        </div>
+                        <div class="space-y-1">
+                            <div class="flex items-center justify-between text-[10px]">
+                                <span class="text-gray-400 uppercase tracking-wider">Battery</span>
+                                <span class="font-mono text-battery"><span id="battery-value-display">0</span> MWh</span>
+                            </div>
+                            <input type="range" id="battery-scrubber" min="0" max="36" value="0" step="2"
+                                class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-battery">
+                        </div>
+                        <div class="flex items-center gap-2 pt-0.5">
+                            <button id="battery-play-btn"
+                                class="flex items-center gap-1 px-2.5 py-1 rounded bg-white/10 text-gray-200 text-[10px] font-medium hover:bg-white/20 transition-colors">
+                                <span class="material-symbols-outlined text-[14px] leading-none">pause</span>
+                                <span id="battery-play-label">Pause</span>
+                            </button>
+                            <span class="text-[9px] text-gray-500 leading-tight">Sweep solar &amp; battery</span>
                         </div>
                     </div>
 
-                    <div id="battery-loop-readout" class="hidden text-xs text-gray-300">
-                        Battery:
-                        <span class="font-mono text-accent"><span id="animation-value">0</span> MWh</span>
-                    </div>
+                    <!-- animation-value retained (hidden) for legacy animation helpers -->
+                    <span id="animation-value" class="hidden">0</span>
                 </div>
             </div>
 
             <!-- LCOE Outlook Panel -->
             <div id="lcoe-outlook-panel"
-                class="hidden absolute top-6 right-6 bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl p-4 shadow-lg w-64 space-y-3">
+                class="hidden absolute top-5 right-6 bg-surface/90 backdrop-blur-md border border-white/10 rounded-lg p-3 shadow-lg w-56 space-y-2">
                 <div class="flex items-center justify-between">
                     <div id="lcoe-outlook-title" class="text-xs font-medium text-gray-300 uppercase tracking-wider">
                         LCOE Outlook
@@ -667,14 +753,19 @@
                     <div class="flex items-center gap-1.5">
                         <span class="text-[10px] text-gray-400 uppercase tracking-wider">Cost Basis</span>
                         <span class="relative group inline-flex items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-gray-500 hover:text-gray-300 cursor-help"
-                                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                                class="w-3 h-3 text-gray-500 hover:text-gray-300 cursor-help" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <circle cx="12" cy="12" r="10"></circle>
                                 <line x1="12" y1="11" x2="12" y2="16"></line>
                                 <line x1="12" y1="8" x2="12.01" y2="8"></line>
                             </svg>
-                            <span class="pointer-events-none absolute right-0 top-5 z-30 hidden group-hover:block w-56 p-2 rounded-lg bg-black/90 border border-white/10 text-[10px] leading-relaxed text-gray-300 normal-case tracking-normal font-normal shadow-lg">
-                                <strong class="text-white">Global</strong> assumes global prices and cost of capital — good for comparing places to each other on physical terms. <strong class="text-white">Local</strong> uses on-the-ground prices and financing — good for comparing places on financial terms.
+                            <span
+                                class="pointer-events-none absolute right-0 top-5 z-30 hidden group-hover:block w-56 p-2 rounded-lg bg-black/90 border border-white/10 text-[10px] leading-relaxed text-gray-300 normal-case tracking-normal font-normal shadow-lg">
+                                <strong class="text-white">Global</strong> assumes global prices and cost of capital —
+                                good for comparing places to each other on physical terms. <strong
+                                    class="text-white">Local</strong> uses on-the-ground prices and financing — good for
+                                comparing places on financial terms.
                             </span>
                         </span>
                     </div>
@@ -766,17 +857,10 @@
                                     class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Target
                                     Uptime</span>
                                 <span class="font-mono text-primary text-xs"><span
-                                id="target-cf-display">80</span>%</span>
+                                        id="target-cf-display">80</span>%</span>
                             </div>
                             <input type="range" id="target-cf-slider" min="50" max="99" value="80" step="1"
                                 class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-colors">
-                            <label id="diesel-backup-row" class="flex items-center justify-between gap-2 mt-2 cursor-pointer"
-                                title="Add a dispatchable generator sized to fill the gap between solar+battery output and the target uptime. Each region uses whichever is cheaper — diesel, or OCGT gas where a regional wholesale price exists. Dispatched only up to the target uptime, not 100%.">
-                                <span class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Include
-                                    firm back-up</span>
-                                <input type="checkbox" id="diesel-backup-toggle"
-                                    class="h-3 w-3 accent-primary cursor-pointer">
-                            </label>
                         </div>
                     </div>
                     <div class="chart-canvas-wrapper">

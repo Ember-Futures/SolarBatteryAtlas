@@ -6,10 +6,21 @@ import {
     LCOE_NO_DATA_COLOR,
     ACCESS_COLOR_SCALE,
     POTENTIAL_MULTIPLE_BUCKETS,
+    POTENTIAL_PER_CAPITA_BUCKETS,
     POTENTIAL_TOTAL_COLORS,
     FEATURE_VORONOI_REUSE
 } from './constants.js';
 import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
+
+// Map a value to a bucket color (shared by the "× Demand" and "per capita"
+// potential display modes, which both use discrete colour buckets).
+function bucketColor(buckets, val) {
+    const value = Number.isFinite(val) ? val : 0;
+    for (const bucket of buckets) {
+        if (bucket.max === null || value < bucket.max) return bucket.color;
+    }
+    return buckets[buckets.length - 1].color;
+}
 
 // Per-cell country overlap list (location_id -> ordered string[]), populated from
 // app.js once the overlapping-countries CSV loads. Lets every map tooltip show the
@@ -404,6 +415,7 @@ function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
     if (overlayMode === 'potential' && potentialState) {
         const level = potentialState.level || 'level1';
         const isMultiple = potentialState.displayMode === 'multiple';
+        const isPerCapita = potentialState.displayMode === 'per_capita';
         const totalKey = level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
         const groundKey = level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
         const rawTotal = Number(d[totalKey]);
@@ -416,12 +428,19 @@ function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
         let ratio = null;
         let demandTwh = null;
         let noDemand = false;
+        let perCapita = null;
+        let population = null;
+        let noPopulation = false;
         if (isMultiple) {
             const demandRow = potentialState.demandMap ? potentialState.demandMap.get(d.location_id) : null;
             const demandKwh = demandRow ? Number(demandRow.annual_demand_kwh || 0) : 0;
             demandTwh = demandKwh > 0 ? demandKwh / 1e9 : 0;
             ratio = demandTwh > 0 ? total / demandTwh : null;
             noDemand = demandTwh <= 0;
+        } else if (isPerCapita) {
+            population = potentialState.populationMap ? Number(potentialState.populationMap.get(d.location_id) || 0) : 0;
+            perCapita = population > 0 ? (total * 1e6) / population : null;
+            noPopulation = !(population > 0);
         }
         let mainLine = '';
         let demandLine = '';
@@ -429,9 +448,14 @@ function buildSupplyTooltipHtml(d, overlayMode, potentialState = null) {
             mainLine = 'No data available';
         } else if (isMultiple && noDemand) {
             mainLine = 'No demand data available';
+        } else if (isPerCapita && noPopulation) {
+            mainLine = 'No population data available';
         } else if (isMultiple) {
             mainLine = `Solar Potential / Demand: ${ratio !== null ? `${formatNumber(ratio, 2)}×` : '--'}`;
             demandLine = `<div class="text-muted">Demand: ${demandTwh ? `${formatNumber(demandTwh, 2)} TWh/yr` : '0 TWh/yr'}</div>`;
+        } else if (isPerCapita) {
+            mainLine = `Solar Potential per Capita: ${perCapita !== null ? `${formatNumber(perCapita, 0)} MWh/person/yr` : '--'}`;
+            demandLine = `<div class="text-muted">Population: ${population ? formatNumber(population, 0) : '0'}</div>`;
         } else {
             mainLine = `Solar Generation Potential: ${formatNumber(total, 2)} TWh/yr`;
         }
@@ -818,6 +842,13 @@ function updateLocationPanel(data, color, mode) {
             const ratio = Number.isFinite(data.potential_ratio) ? data.potential_ratio : null;
             valueEl.textContent = ratio === null ? '--' : `${formatNumber(ratio, 2)}×`;
             labelEl.textContent = `Solar Potential / Demand (${getPotentialLevelLabel(data.potential_level)})`;
+        } else if (data.potential_display === 'per_capita' && data.potential_no_population) {
+            valueEl.textContent = 'No population';
+            labelEl.textContent = `Solar Potential per Capita (${getPotentialLevelLabel(data.potential_level)})`;
+        } else if (data.potential_display === 'per_capita') {
+            const pc = Number.isFinite(data.potential_per_capita) ? data.potential_per_capita : null;
+            valueEl.textContent = pc === null ? '--' : `${formatNumber(pc, 0)} MWh/person/yr`;
+            labelEl.textContent = `Solar Potential per Capita (${getPotentialLevelLabel(data.potential_level)})`;
         } else {
             const val = Number.isFinite(data.potential_twh) ? data.potential_twh : 0;
             valueEl.textContent = `${formatNumber(val, 2)} TWh/yr`;
@@ -1562,21 +1593,16 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
     const potentialKey = potentialState?.level === 'level2' ? 'total_level2_twh_y' : 'total_level1_twh_y';
     const potentialFallbackKey = potentialState?.level === 'level2' ? 'pvout_level2_twh_y' : 'pvout_level1_twh_y';
     const potentialIsMultiple = potentialState?.displayMode === 'multiple';
+    const potentialIsPerCapita = potentialState?.displayMode === 'per_capita';
     const potentialNoDataColor = '#6b7280';
     const potentialScale = overlayMode === 'potential' && potentialState && potentialState.valueCount
         ? (potentialIsMultiple
-            ? (val) => {
-                const value = Number.isFinite(val) ? val : 0;
-                for (const bucket of POTENTIAL_MULTIPLE_BUCKETS) {
-                    if (bucket.max === null || value < bucket.max) {
-                        return bucket.color;
-                    }
-                }
-                return POTENTIAL_MULTIPLE_BUCKETS[POTENTIAL_MULTIPLE_BUCKETS.length - 1].color;
-            }
-            : d3.scaleSequential(d3.interpolateRgbBasis(POTENTIAL_TOTAL_COLORS))
-                .domain([potentialState.min, potentialState.max])
-                .clamp(true))
+            ? (val) => bucketColor(POTENTIAL_MULTIPLE_BUCKETS, val)
+            : potentialIsPerCapita
+                ? (val) => bucketColor(POTENTIAL_PER_CAPITA_BUCKETS, val)
+                : d3.scaleSequential(d3.interpolateRgbBasis(POTENTIAL_TOTAL_COLORS))
+                    .domain([potentialState.min, potentialState.max])
+                    .clamp(true))
         : null;
 
     const colorScale = overlayMode === 'lcoe' && lcoeColorInfo
@@ -1605,6 +1631,10 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
                 const demandTwh = demandKwh > 0 ? demandKwh / 1e9 : 0;
                 if (demandTwh <= 0) return potentialNoDataColor;
                 value = totalVal / demandTwh;
+            } else if (potentialIsPerCapita) {
+                const pop = potentialState.populationMap ? Number(potentialState.populationMap.get(row.location_id) || 0) : 0;
+                if (!(pop > 0)) return potentialNoDataColor;
+                value = (totalVal * 1e6) / pop;
             }
             return potentialScale(value || 0);
         }
@@ -1880,7 +1910,7 @@ export function updatePopulationGeo(popData, geojson, { overlayMode = 'none', cf
     }
 }
 
-export function updatePotentialMap(potentialData, { level = 'level1', min = null, max = null, displayMode = 'total', demandMap = null, latBounds = null } = {}) {
+export function updatePotentialMap(potentialData, { level = 'level1', min = null, max = null, displayMode = 'total', demandMap = null, populationMap = null, latBounds = null } = {}) {
     currentMode = 'potential';
     selectedMarker = null;
 
@@ -1896,6 +1926,7 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
         return Number.isFinite(raw) ? raw : Number(row[groundKey] || 0);
     };
     const isMultiple = displayMode === 'multiple';
+    const isPerCapita = displayMode === 'per_capita';
     const values = potentialData.map(d => readTotal(d)).filter(v => Number.isFinite(v));
     const scaleMin = Number.isFinite(min) ? min : (values.length ? Math.min(...values) : 0);
     const scaleMax = Number.isFinite(max) ? max : (values.length ? Math.max(...values) : 1);
@@ -1903,18 +1934,18 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
 
     const totalInterpolator = d3.interpolateRgbBasis(POTENTIAL_TOTAL_COLORS);
     const colorScale = isMultiple
-        ? (val) => {
-            const value = Number.isFinite(val) ? val : 0;
-            for (const bucket of POTENTIAL_MULTIPLE_BUCKETS) {
-                if (bucket.max === null || value < bucket.max) {
-                    return bucket.color;
-                }
-            }
-            return POTENTIAL_MULTIPLE_BUCKETS[POTENTIAL_MULTIPLE_BUCKETS.length - 1].color;
-        }
-        : d3.scaleSequential(totalInterpolator)
-            .domain([scaleMin, scaleMax])
-            .clamp(true);
+        ? (val) => bucketColor(POTENTIAL_MULTIPLE_BUCKETS, val)
+        : isPerCapita
+            ? (val) => bucketColor(POTENTIAL_PER_CAPITA_BUCKETS, val)
+            : d3.scaleSequential(totalInterpolator)
+                .domain([scaleMin, scaleMax])
+                .clamp(true);
+
+    // Per-capita = annual solar generation potential (MWh) ÷ zone population.
+    const perCapitaOf = (totalTwh, locationId) => {
+        const pop = populationMap ? Number(populationMap.get(locationId) || 0) : 0;
+        return pop > 0 ? { value: (totalTwh * 1e6) / pop, population: pop } : { value: null, population: pop };
+    };
 
     const sharedPopup = L.popup({
         closeButton: false,
@@ -1929,19 +1960,27 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
         const lat = Number(d.latitude);
         let ratio = null;
         let demandTwh = null;
+        let perCapita = null;
+        let population = null;
         const noData = latBounds
             ? (!Number.isFinite(lat) || lat < latBounds.min || lat > latBounds.max)
             : false;
         let noDemand = false;
+        let noPopulation = false;
         if (isMultiple) {
             const demandRow = demandMap ? demandMap.get(d.location_id) : null;
             const demandKwh = demandRow ? Number(demandRow.annual_demand_kwh || 0) : 0;
             demandTwh = demandKwh > 0 ? demandKwh / 1e9 : 0;
             ratio = demandTwh > 0 ? total / demandTwh : null;
             noDemand = demandTwh <= 0;
+        } else if (isPerCapita) {
+            const pc = perCapitaOf(total, d.location_id);
+            perCapita = pc.value;
+            population = pc.population;
+            noPopulation = pc.value === null;
         }
-        const displayValue = isMultiple ? (ratio ?? 0) : total;
-        const color = noData || (isMultiple && noDemand)
+        const displayValue = isMultiple ? (ratio ?? 0) : isPerCapita ? (perCapita ?? 0) : total;
+        const color = noData || (isMultiple && noDemand) || (isPerCapita && noPopulation)
             ? noDataColor
             : colorScale(displayValue || 0);
 
@@ -1963,9 +2002,14 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
                 mainLine = 'No data available';
             } else if (isMultiple && noDemand) {
                 mainLine = 'No demand data available';
+            } else if (isPerCapita && noPopulation) {
+                mainLine = 'No population data available';
             } else if (isMultiple) {
                 mainLine = `Solar Potential / Demand: ${ratio !== null ? `${formatNumber(ratio, 2)}×` : '--'}`;
                 demandLine = `<div class="text-muted">Demand: ${demandTwh ? `${formatNumber(demandTwh, 2)} TWh/yr` : '0 TWh/yr'}</div>`;
+            } else if (isPerCapita) {
+                mainLine = `Solar Potential per Capita: ${perCapita !== null ? `${formatNumber(perCapita, 0)} MWh/person/yr` : '--'}`;
+                demandLine = `<div class="text-muted">Population: ${population ? formatNumber(population, 0) : '0'}</div>`;
             } else {
                 mainLine = `Solar Generation Potential: ${formatNumber(total, 2)} TWh/yr`;
             }
@@ -1995,8 +2039,11 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
                 demand_twh: demandTwh,
                 potential_level: level,
                 potential_display: displayMode,
+                potential_per_capita: perCapita,
+                population,
                 potential_no_data: noData,
-                potential_no_demand: noDemand
+                potential_no_demand: noDemand,
+                potential_no_population: noPopulation
             }, color, 'potential');
 
             if (map.onLocationSelect) {
@@ -2007,8 +2054,11 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
                     demand_twh: demandTwh,
                     potential_level: level,
                     potential_display: displayMode,
+                    potential_per_capita: perCapita,
+                    population,
                     potential_no_data: noData,
-                    potential_no_demand: noDemand
+                    potential_no_demand: noDemand,
+                    potential_no_population: noPopulation
                 }, 'potential');
             }
         });
@@ -2035,6 +2085,10 @@ export function updatePotentialMap(potentialData, { level = 'level1', min = null
             const demandTwh = demandKwh > 0 ? demandKwh / 1e9 : 0;
             if (demandTwh <= 0) return noDataColor;
             value = totalVal / demandTwh;
+        } else if (isPerCapita) {
+            const pc = perCapitaOf(totalVal, row.location_id);
+            if (pc.value === null) return noDataColor;
+            value = pc.value;
         }
         return colorScale(value || 0);
     });

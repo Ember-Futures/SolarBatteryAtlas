@@ -4,12 +4,12 @@
  */
 
 import { getVisualState, hasAnimation, getAnimation, interpolate } from './visual-states.js';
-import { loadSummary, loadPopulationCsv, loadGemPlantsCsv, loadVoronoiGemCapacityCsv, loadElectricityDemandData, loadReliabilityCsv, loadSample, loadSampleColumnar, loadWeeklyFrameCache, loadPvoutPotentialCsv, loadVoronoiWaccCsv, loadVoronoiLocalCapexCsv, loadVoronoiGasCsv } from './data.js';
-import { initMap, updateMap, updatePopulationSimple, updateLcoeMap, updateLcoePlantOverlay, updatePotentialMap, setAccessMetric, updateMapWithSampleFrame, clearAllMapLayers, map, initSampleFrameMap, updateSampleFrameColors, isSampleFrameInitialized, resetSampleFrameState, renderDualGlobes, hideDualGlobes } from './map.js';
+import { loadSummary, loadPopulationCsv, loadGemPlantsCsv, loadVoronoiGemCapacityCsv, loadElectricityDemandData, loadReliabilityCsv, loadSample, loadSampleColumnar, loadWeeklyFrameCache, loadPvoutPotentialCsv, loadVoronoiWaccCsv, loadVoronoiLocalCapexCsv, loadVoronoiGasCsv, loadVoronoiOverlappingCountriesCsv } from './data.js';
+import { initMap, updateMap, updatePopulationSimple, updateLcoeMap, updateLcoePlantOverlay, updatePotentialMap, setAccessMetric, updateMapWithSampleFrame, clearAllMapLayers, map, initSampleFrameMap, updateSampleFrameColors, isSampleFrameInitialized, resetSampleFrameState, renderDualGlobes, hideDualGlobes, setCellCountries } from './map.js';
 import { capitalRecoveryFactor as crf, levelizedGrowthMultiplier } from './utils.js';
 import { transitionController, initTransitions, TRANSITION_DURATION, interpolateColor } from './transitions.js';
-import { showPopulationCfChart, showFossilDisplacementChart, showWeeklySampleChart, showUptimeComparisonChart, showCumulativeCapacityChart, showNoAccessLcoeChart, showGlobalPopulationLcoeChart, showBackupCostChart, hideChart } from './scrolly-charts.js';
-import { POTENTIAL_MULTIPLE_BUCKETS, FEATURE_WORKER_LCOE, FEATURE_STAGED_PRELOAD, FEATURE_FRAMECACHE } from './constants.js';
+import { showPopulationCfChart, showFossilDisplacementChart, showWeeklySampleChart, showUptimeComparisonChart, showCumulativeCapacityChart, showNoAccessLcoeChart, showGlobalPopulationLcoeChart, showBackupCostChart, showLatitudeDemandSupplyChart, hideChart } from './scrolly-charts.js';
+import { POTENTIAL_MULTIPLE_BUCKETS, POTENTIAL_PER_CAPITA_BUCKETS, FEATURE_WORKER_LCOE, FEATURE_STAGED_PRELOAD, FEATURE_FRAMECACHE } from './constants.js';
 
 // ========== STATE ==========
 let summaryData = [];
@@ -23,6 +23,7 @@ let reliabilityData = [];
 let reliabilityMap = null;
 let potentialData = [];
 let potentialLatBounds = { level1: null, level2: null };
+let potentialPopulationMap = null; // location_id -> population_2020 (per-capita potential)
 let electricityDemandMap = null;
 let waccMap = new Map();
 let localCapexMap = new Map();
@@ -57,6 +58,12 @@ let weeklyAnimationInterval = null;
 let currentWeekFrame = 0;
 let isAnimatingWeekly = false;
 let currentSolarState = 6; // Default solar capacity
+// Section 2 (battery-capacity) autoplay: sweeps solar (battery 0), then battery (solar max).
+let batteryCapAutoplayTimer = null;
+let batteryCapFrameIndex = 0;
+let batteryCapPlaying = false;
+let batteryCapFramesCache = null;
+const BATTERY_CAP_STEP_MS = 450;
 let preloadPromise = null;
 let stagedPreloadController = null;
 let stagedPreloadSerial = 0;
@@ -74,12 +81,13 @@ const lcoeWorkerCache = new Map();
 const lcoeWorkerInFlight = new Set();
 const lcoeWorkerRerenderCtx = new Map(); // cacheKey -> { sectionId, renderVersion } to repaint on arrival
 let scrollSections = [];
-let scrollSectionIndex = new Map();
 let scrollOpacityRaf = null;
+let scrollRafRequestedTs = 0;
 let lastOverlayOpacity = null;
 let lastScrollMetrics = null;
-let pendingSectionId = null;
-let pendingSectionVersion = 0;
+let pendingScrollSectionId = null;   // scroll-resolved section waiting for its throttled commit
+let sectionCommitTimer = null;       // trailing-edge timer for the pending section switch
+let lastSectionCommitTs = 0;         // when the last section switch was committed
 let currentPotentialLevel = null;
 let currentPotentialDisplayMode = 'multiple';
 let sectionRenderVersion = 0;
@@ -106,6 +114,8 @@ const MAP_READY_SAFETY_MS = 8000;    // hard cap on the black hold
 const GAP_FADE_FRACTION = 0.2;
 const MIN_BLACK_HOLD_PX = 48;
 const PRELOAD_IDLE_TIMEOUT_MS = 1200;
+const SECTION_COMMIT_MIN_INTERVAL_MS = 150; // throttle section switches during fast flings
+const GAP_SWITCH_HYSTERESIS_PX = 24;        // keep gap-midpoint jitter from thrashing the map
 
 function isSectionRenderCurrent(sectionId, renderVersion) {
     return currentSection === sectionId && renderVersion === sectionRenderVersion;
@@ -272,6 +282,15 @@ const weeklyConfigButtons = document.querySelectorAll('#weekly-config-toggle but
 const weeklySeasonButtons = document.querySelectorAll('#weekly-season-toggle button');
 const batteryLoopReadout = document.getElementById('battery-loop-readout');
 const batterySlider = document.getElementById('battery-slider');
+// Section 2 (battery-capacity) scrubbers + play button
+const batteryScrubber = document.getElementById('battery-scrubber');
+const batteryValueDisplay = document.getElementById('battery-value-display');
+const batteryPlayBtn = document.getElementById('battery-play-btn');
+// Section 4 (cheap-populous) Map/Chart toggle + latitude chart
+const latitudeViewToggle = document.getElementById('latitude-view-toggle');
+const latitudeViewButtons = document.querySelectorAll('#latitude-view-toggle button');
+const latitudeChartContainer = document.getElementById('latitude-chart-container');
+let cheapPopulousView = 'chart'; // 'chart' (Demand & Supply by Latitude) | 'map' (LCOE map)
 const mapElement = document.getElementById('map');
 
 // Legend elements
@@ -280,16 +299,20 @@ const legendLcoe = document.getElementById('legend-lcoe');
 const legendLcoeMin = document.getElementById('legend-lcoe-min');
 const legendLcoeMid = document.getElementById('legend-lcoe-mid');
 const legendLcoeMax = document.getElementById('legend-lcoe-max');
+const legendLcoeNote = document.getElementById('legend-lcoe-note');
 const legendPopulation = document.getElementById('legend-population');
 const legendAccess = document.getElementById('legend-access');
+const legendNoAccess = document.getElementById('legend-no-access');
 const legendUptime = document.getElementById('legend-uptime');
 const legendWeekly = document.getElementById('legend-weekly');
 const legendPotential = document.getElementById('legend-potential');
 const legendPotentialBuckets = document.getElementById('legend-potential-buckets');
+const legendPotentialTitle = document.getElementById('legend-potential-title');
 
 // Potential toggle elements
 const potentialToggle = document.getElementById('potential-toggle');
 const potentialToggleButtons = document.querySelectorAll('#potential-toggle-buttons button');
+const potentialDisplayToggleButtons = document.querySelectorAll('#potential-display-toggle-buttons button');
 const potentialToggleHelp = document.getElementById('potential-toggle-help');
 
 // LCOE Outlook controls
@@ -307,12 +330,10 @@ const targetCfContainer = document.getElementById('target-cf-container');
 const inlineTargetCfContainer = document.getElementById('inline-target-cf-container');
 const targetCfSlider = document.getElementById('target-cf-slider');
 const targetCfDisplay = document.getElementById('target-cf-display');
-const dieselBackupToggle = document.getElementById('diesel-backup-toggle');
 
 // Inline uptime-slider sub-elements (shared across LCOE chart steps; repurposed for the
 // back-up step as "Target Solar + Battery Uptime").
 const targetCfLabel = document.getElementById('target-cf-label');
-const dieselBackupRow = document.getElementById('diesel-backup-row');
 
 // ========== INITIALIZATION ==========
 async function init() {
@@ -333,6 +354,16 @@ async function init() {
         prepareSummaryIndexes(summaryData);
         if (FEATURE_WORKER_LCOE) {
             ensureScrollyLcoeWorkerReady();
+        }
+
+        // Load per-cell country overlaps (small) so every map tooltip can show the
+        // country (or countries, for border-straddling cells) the hovered cell covers.
+        // Best-effort: a failure just omits the country line, matching the main tool.
+        try {
+            const overlapRows = await loadVoronoiOverlappingCountriesCsv();
+            setCellCountries(new Map(overlapRows.map(r => [r.location_id, r.country_names])));
+        } catch (err) {
+            console.warn('Overlapping-countries data unavailable:', err);
         }
 
         updateLoadingStatus('Initializing map...');
@@ -358,7 +389,6 @@ async function init() {
         window.addEventListener('scroll', handleScroll, { passive: true });
         window.addEventListener('resize', () => {
             scrollSections = [];
-            scrollSectionIndex = new Map();
             lastScrollMetrics = null;
             updateScrollOpacity();
         }, { passive: true });
@@ -423,14 +453,13 @@ function buildPreloadTaskList(sectionId, immediate = []) {
     const planBySection = {
         hero: ['potential', 'weekly', 'population'],
         'potential-map': ['electricity', 'weekly', 'population'],
-        'battery-shadow': ['weekly', 'population'],
-        'battery-capacity': ['weekly', 'population', 'reliability'],
-        widespread: ['population', 'reliability'],
-        'cheap-populous': ['population', 'electricity', 'wacc'],
+        'battery-capacity': ['weekly', 'population'],
+        'battery-shadow': ['weekly', 'population', 'wacc'],
+        'cheap-populous': ['population', 'reliability', 'wacc'],
         'cheap-access': ['reliability', 'population'],
-        'better-uptime': ['reliability', 'population'],
-        'backup-cost': ['wacc', 'capex', 'gas', 'population'],
-        'planned-capacity': ['fossil', 'population'],
+        'better-uptime': ['reliability', 'wacc', 'capex', 'gas', 'population'],
+        'backup-cost': ['wacc', 'capex', 'gas', 'fossil', 'population'],
+        'planned-capacity': ['fossil', 'wacc', 'capex', 'gas', 'population'],
         'lcoe-outlook': ['wacc', 'capex', 'gas', 'population'],
         'path-forward': ['population']
     };
@@ -589,6 +618,27 @@ async function ensurePopulationData() {
     })();
 
     return populationLoading;
+}
+
+// location_id -> population, for the per-capita potential view. Population is
+// keyed by lat/lon; potential by location_id + 6-decimal lat/lon. Join on a
+// 2-decimal coordinate key (matches 4921/4926 zones, no key collisions).
+function ensurePotentialPopulationMap() {
+    if (potentialPopulationMap) return potentialPopulationMap;
+    if (!populationData.length || !potentialData.length) return null;
+    const coord2 = (lat, lon) => `${Number(lat).toFixed(2)},${Number(lon).toFixed(2)}`;
+    const popByCoord = new Map();
+    populationData.forEach(p => {
+        if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) return;
+        popByCoord.set(coord2(p.latitude, p.longitude), p.population_2020);
+    });
+    const map = new Map();
+    potentialData.forEach(row => {
+        const pop = popByCoord.get(coord2(row.latitude, row.longitude));
+        if (pop !== undefined) map.set(row.location_id, pop);
+    });
+    potentialPopulationMap = map;
+    return map;
 }
 
 async function ensureFossilData() {
@@ -926,6 +976,14 @@ async function refreshLcoeViews() {
         return;
     }
 
+    if (currentSection === 'backup-cost') {
+        await Promise.all([ensurePopulationData(), ensureGasData()]);
+        const sbTarget = getBackupSbTarget();
+        renderBackupMap(sbTarget);
+        await showBackupCostChart(getBackupResults(sbTarget), populationData, sbTarget);
+        return;
+    }
+
     const state = getVisualState(currentSection);
     if (!state) return;
 
@@ -941,6 +999,10 @@ async function refreshLcoeViews() {
         updateLcoeMap(lcoeResults, { colorInfo });
         updateLegend('lcoe');
         await showGlobalPopulationLcoeChart(populationData, lcoeResults);
+        if (cheapPopulousView === 'chart') {
+            if (legendLcoe) legendLcoe.classList.add('hidden');
+            await showLatitudeDemandSupplyChart(populationData, lcoeResults);
+        }
         return;
     }
 
@@ -1044,14 +1106,16 @@ function startOutlookAnimation() {
 }
 
 function updateLcoeOutlookMap() {
-    const targetCf = DEFAULT_LCOE_TARGET_CF / 100;
+    const outlookState = getVisualState('lcoe-outlook');
+    const targetCfValue = outlookState.targetCf || DEFAULT_LCOE_TARGET_CF;
+    const targetCf = targetCfValue / 100;
     const lcoeResults = computeLcoeForAllLocations(targetCf);
     const colorInfo = buildLcoeColorInfo(lcoeResults);
     lastLcoeResults = lcoeResults;
     lastLcoeColorInfo = colorInfo;
     updateLcoeMap(lcoeResults, { colorInfo });
     updateLegend('lcoe');
-    updateVisualLabel({ title: 'LCOE Outlook', subtitle: `Target: ${DEFAULT_LCOE_TARGET_CF}% Capacity Factor • ${lcoeOutlookYear}` });
+    updateVisualLabel({ title: 'LCOE Outlook', subtitle: `Target: ${targetCfValue}% Capacity Factor • ${lcoeOutlookYear}` });
 }
 
 async function onLocationSelect(data, mode) {
@@ -1112,16 +1176,16 @@ function setupScrollObserver() {
         threshold: 0
     };
 
+    // The observer only handles the cosmetic text fade-in ('visible'). Section/map
+    // switching is driven from scroll position in updateScrollOpacity instead:
+    // IntersectionObserver callbacks arrive late and batched during fast scrolling, and
+    // with 120vh sections two of them can intersect the band at once — processing the
+    // batch in document order left currentSection stuck on the wrong (document-last)
+    // section when scrolling up, with no further event to correct it.
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
-                const sectionId = entry.target.dataset.section;
-                if (sectionId && sectionId !== currentSection) {
-                    onSectionEnter(sectionId);
-                }
-                entry.target.classList.add('visible', 'active');
-            } else {
-                entry.target.classList.remove('active');
+                entry.target.classList.add('visible');
             }
         });
     }, observerOptions);
@@ -1168,6 +1232,7 @@ function onSectionEnter(sectionId) {
     }
 
     updateSectionDots(sectionId);
+    updateActiveSectionClass(sectionId);
 
     preloadScrollyData({
         sectionId,
@@ -1255,15 +1320,60 @@ function setupInteractions() {
             if (solarValueDisplay) solarValueDisplay.textContent = val;
 
             if (currentSection === 'battery-capacity') {
-                const batteryVal = animationValue ? parseInt(animationValue.textContent, 10) : 0;
+                stopBatteryCapAutoplay(); // grabbing a slider pauses the sweep
+                const batteryVal = batteryScrubber ? parseInt(batteryScrubber.value, 10) : 0;
                 if (Number.isFinite(batteryVal) && summaryData.length > 0) {
-                    const cfData = getSummaryForConfig(currentSolarState, batteryVal);
-                    updateMap(cfData, currentSolarState, batteryVal, {
+                    batteryCapFrameIndex = nearestBatteryCapFrame(val, batteryVal);
+                    const cfData = getSummaryForConfig(val, batteryVal);
+                    updateMap(cfData, val, batteryVal, {
                         ...(getVisualState('battery-capacity')?.mapOptions || {}),
                         preFiltered: true
                     });
                 }
             }
+        });
+    }
+
+    if (batteryScrubber) {
+        batteryScrubber.addEventListener('input', () => {
+            const battery = parseInt(batteryScrubber.value, 10);
+            if (!Number.isFinite(battery)) return;
+            if (batteryValueDisplay) batteryValueDisplay.textContent = battery;
+            if (currentSection === 'battery-capacity') {
+                stopBatteryCapAutoplay(); // grabbing a slider pauses the sweep
+                const solar = currentSolarState;
+                if (summaryData.length > 0) {
+                    batteryCapFrameIndex = nearestBatteryCapFrame(solar, battery);
+                    const cfData = getSummaryForConfig(solar, battery);
+                    updateMap(cfData, solar, battery, {
+                        ...(getVisualState('battery-capacity')?.mapOptions || {}),
+                        preFiltered: true
+                    });
+                }
+            }
+        });
+    }
+
+    if (batteryPlayBtn) {
+        batteryPlayBtn.addEventListener('click', () => {
+            if (currentSection !== 'battery-capacity') return;
+            if (batteryCapPlaying) {
+                stopBatteryCapAutoplay();
+            } else {
+                startBatteryCapAutoplay('battery-capacity', getVisualState('battery-capacity'), sectionRenderVersion);
+            }
+        });
+    }
+
+    if (latitudeViewButtons && latitudeViewButtons.length) {
+        latitudeViewButtons.forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (currentSection !== 'cheap-populous') return;
+                const view = btn.dataset.latview === 'chart' ? 'chart' : 'map';
+                if (view === cheapPopulousView) return;
+                cheapPopulousView = view;
+                await applyCheapPopulousView();
+            });
         });
     }
 
@@ -1278,6 +1388,20 @@ function setupInteractions() {
         });
     }
 
+    if (potentialDisplayToggleButtons && potentialDisplayToggleButtons.length > 0) {
+        potentialDisplayToggleButtons.forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (currentSection !== 'potential-map') return;
+                const mode = btn.dataset.display;
+                if (!mode || mode === currentPotentialDisplayMode) return;
+                currentPotentialDisplayMode = mode;
+                updatePotentialDisplayToggleUI(mode);
+                updateLegend('potential');
+                await applyPotentialLevel(currentPotentialLevel || 'level1', { updateLabel: true, updateMap: true });
+            });
+        });
+    }
+
     async function refreshTargetCfSection(val) {
         if (currentSection === 'planned-capacity') {
             const targetCf = val / 100.0;
@@ -1288,6 +1412,7 @@ function setupInteractions() {
             lastLcoeColorInfo = colorInfo;
             updateLcoeMap(lcoeResults, { colorInfo, fossilCapacityMap, fossilPlants });
             updateVisualLabel({ title: 'LCOE Map', subtitle: `Target: ${val}% Capacity Factor${includeDieselBackup ? ' + firm back-up' : ''}` });
+            updateLegend('lcoe');
 
             await showCumulativeCapacityChart(fossilCapacityData, lcoeResults);
         } else if (currentSection === 'cheap-access') {
@@ -1313,6 +1438,9 @@ function setupInteractions() {
             lastLcoeColorInfo = colorInfo;
             updateLcoeMap(lcoeResults, { colorInfo });
             await showGlobalPopulationLcoeChart(populationData, lcoeResults);
+            if (cheapPopulousView === 'chart') {
+                await showLatitudeDemandSupplyChart(populationData, lcoeResults);
+            }
         } else if (currentSection === 'backup-cost') {
             await Promise.all([ensurePopulationData(), ensureGasData()]);
             const sbTarget = val / 100;
@@ -1325,15 +1453,6 @@ function setupInteractions() {
         targetCfSlider.addEventListener('input', async (e) => {
             const val = parseInt(e.target.value, 10);
             if (targetCfDisplay) targetCfDisplay.textContent = val;
-            await refreshTargetCfSection(val);
-        });
-    }
-
-    if (dieselBackupToggle) {
-        dieselBackupToggle.addEventListener('change', async (e) => {
-            includeDieselBackup = Boolean(e.target.checked);
-            if (includeDieselBackup) await ensureGasData();
-            const val = targetCfSlider ? parseInt(targetCfSlider.value, 10) : DEFAULT_LCOE_TARGET_CF;
             await refreshTargetCfSection(val);
         });
     }
@@ -1370,6 +1489,40 @@ function setupInteractions() {
 
 
 
+// ========== SECTION 4: MAP / CHART TOGGLE (Demand & Supply by Latitude) ==========
+function updateLatitudeToggleUI() {
+    latitudeViewButtons.forEach(btn => {
+        const active = btn.dataset.latview === cheapPopulousView;
+        btn.classList.toggle('bg-white/10', active);
+        btn.classList.toggle('text-white', active);
+        btn.classList.toggle('text-gray-400', !active);
+    });
+}
+
+// Swap the top visual between the LCOE map and the latitude chart. The bottom cumulative
+// chart + uptime slider stay put in both views, so the toggle only affects the map area.
+async function applyCheapPopulousView() {
+    updateLatitudeToggleUI();
+    const chartMode = cheapPopulousView === 'chart';
+    if (latitudeChartContainer) {
+        latitudeChartContainer.classList.toggle('hidden', !chartMode);
+        // Reserve a top control bar (clears the Map/Chart toggle + cost-basis pill).
+        latitudeChartContainer.classList.toggle('cp-chart-mode', chartMode);
+    }
+    // In chart mode the chart carries its own axes, so hide the LCOE colour legend.
+    if (legendLcoe) legendLcoe.classList.toggle('hidden', chartMode);
+    // In chart mode, collapse the "Cost Assumptions" panel into a slim top-bar pill so
+    // it no longer overlaps the chart; restore the normal card for the LCOE map view.
+    if (outlookPanel) outlookPanel.classList.toggle('cp-chart-cost', chartMode);
+    if (chartMode) {
+        await ensurePopulationData();
+        const val = targetCfSlider ? parseInt(targetCfSlider.value, 10) : DEFAULT_LCOE_TARGET_CF;
+        const targetCf = (Number.isFinite(val) ? val : DEFAULT_LCOE_TARGET_CF) / 100;
+        const lcoeResults = computeLcoeForAllLocations(targetCf);
+        await showLatitudeDemandSupplyChart(populationData, lcoeResults);
+    }
+}
+
 function updateSectionDots(sectionId) {
     const sectionIndex = getSectionIndex(sectionId);
     sectionDots.forEach((dot, index) => {
@@ -1381,16 +1534,15 @@ function getSectionIndex(sectionId) {
     const map = {
         'hero': -1,
         'potential-map': 0,
-        'battery-shadow': 1,
-        'battery-capacity': 2,
-        'widespread': 3,
-        'cheap-populous': 4,
-        'cheap-access': 5,
-        'better-uptime': 6,
-        'backup-cost': 7,
-        'planned-capacity': 8,
-        'lcoe-outlook': 9,
-        'path-forward': 10
+        'battery-capacity': 1,
+        'battery-shadow': 2,
+        'cheap-populous': 3,
+        'cheap-access': 4,
+        'better-uptime': 5,
+        'backup-cost': 6,
+        'planned-capacity': 7,
+        'lcoe-outlook': 8,
+        'path-forward': 9
     };
     return map[sectionId] ?? -1;
 }
@@ -1514,11 +1666,15 @@ async function applyPotentialLevel(level, { updateLabel = true, updateMap = true
     currentPotentialLevel = level;
     updatePotentialToggleUI(level);
 
+    const mode = currentPotentialDisplayMode;
     if (updateLabel) {
-        const label = level === 'level2' ? 'Policy constraints' : 'Technical constraints';
+        const constraint = level === 'level2' ? 'Policy constraints' : 'Technical constraints';
+        const modeSub = mode === 'per_capita'
+            ? 'Annual potential per person (MWh/yr)'
+            : "Multiple of today's demand";
         updateVisualLabel({
-            title: 'Solar Potential vs Demand',
-            subtitle: `${label} • Multiple of today's demand`
+            title: 'Solar Potential',
+            subtitle: `${constraint} • ${modeSub}`
         });
     }
 
@@ -1527,7 +1683,12 @@ async function applyPotentialLevel(level, { updateLabel = true, updateMap = true
     if (!potentialData || potentialData.length === 0) {
         await ensurePotentialData();
     }
-    if (!electricityDemandMap || electricityDemandMap.size === 0) {
+    // "× Demand" needs electricity demand; "Per capita" needs population.
+    let populationMap = null;
+    if (mode === 'per_capita') {
+        await ensurePopulationData();
+        populationMap = ensurePotentialPopulationMap();
+    } else if (!electricityDemandMap || electricityDemandMap.size === 0) {
         await ensureElectricityData();
     }
 
@@ -1535,10 +1696,25 @@ async function applyPotentialLevel(level, { updateLabel = true, updateMap = true
     transitionController.crossfade(() => {
         updatePotentialMap(potentialData, {
             level,
-            displayMode: currentPotentialDisplayMode,
+            displayMode: mode,
             demandMap: electricityDemandMap,
+            populationMap,
             latBounds
         });
+    });
+}
+
+function updatePotentialDisplayToggleUI(mode) {
+    if (!potentialDisplayToggleButtons || potentialDisplayToggleButtons.length === 0) return;
+    potentialDisplayToggleButtons.forEach(btn => {
+        const isActive = btn.dataset.display === mode;
+        if (isActive) {
+            btn.classList.add('bg-gray-600', 'text-white', 'shadow-sm');
+            btn.classList.remove('text-gray-400');
+        } else {
+            btn.classList.remove('bg-gray-600', 'text-white', 'shadow-sm');
+            btn.classList.add('text-gray-400');
+        }
     });
 }
 
@@ -1549,7 +1725,9 @@ async function applyVisualState(sectionId, renderVersion = sectionRenderVersion)
 
     console.log('Applying visual state:', sectionId, state);
 
-    const isLcoeView = state.viewMode === 'lcoe' || state.viewMode === 'no-access';
+    // The back-up step (viewMode 'backup') also reads the global/local cost basis, so it
+    // shows the same compact "Cost Assumptions" toggle as the LCOE steps.
+    const isLcoeView = state.viewMode === 'lcoe' || state.viewMode === 'no-access' || state.viewMode === 'backup';
     const showCostPanel = sectionId === 'lcoe-outlook' || isLcoeView;
     if (!showCostPanel) {
         stopOutlookAnimation();
@@ -1597,8 +1775,7 @@ async function applyVisualState(sectionId, renderVersion = sectionRenderVersion)
         ensurePotentialLatBounds(state.level || 'level1');
     }
 
-    // Render immediately and let the readiness black-hold cover the swap; the old
-    // scroll-position deferral (shouldDelaySection) is no longer needed.
+    // Render immediately and let the readiness black-hold cover the swap.
     if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
 
     // Update label
@@ -1610,6 +1787,8 @@ async function applyVisualState(sectionId, renderVersion = sectionRenderVersion)
     if (potentialToggle) {
         if (sectionId === 'potential-map') {
             currentPotentialDisplayMode = state.displayMode || 'multiple';
+            updatePotentialDisplayToggleUI(currentPotentialDisplayMode);
+            updateLegend('potential'); // re-render now that the display mode is known
             await applyPotentialLevel(state.level || 'level1', { updateLabel: false, updateMap: false });
             if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
             potentialToggle.classList.remove('hidden');
@@ -1654,8 +1833,8 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
         if (ind) ind.classList.add('hidden');
     }
 
-    const isLcoeView = state?.viewMode === 'lcoe' || state?.viewMode === 'no-access';
-    if (sectionId !== 'lcoe-outlook' && !isLcoeView) {
+    const keepCostPanel = state?.viewMode === 'lcoe' || state?.viewMode === 'no-access' || state?.viewMode === 'backup';
+    if (sectionId !== 'lcoe-outlook' && !keepCostPanel) {
         stopOutlookAnimation();
         if (outlookPanel) outlookPanel.classList.add('hidden');
     }
@@ -1668,9 +1847,16 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
         inlineTargetCfContainer.classList.add('hidden');
     }
 
-    // Hide dual globe container when not in Step 4
+    // Hide dual globe container + latitude toggle when not in Step 4
     if (sectionId !== 'cheap-populous') {
         hideDualGlobes();
+        if (latitudeViewToggle) latitudeViewToggle.classList.add('hidden');
+        if (latitudeChartContainer) {
+            latitudeChartContainer.classList.add('hidden');
+            latitudeChartContainer.classList.remove('cp-chart-mode');
+        }
+        // Restore the full "Cost Assumptions" card for other LCOE sections (over the map).
+        if (outlookPanel) outlookPanel.classList.remove('cp-chart-cost');
     }
 
     // Section 3: Batteries Make the Sun Shine After Dark
@@ -1704,10 +1890,15 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
         }
     }
     else if (sectionId === 'battery-capacity') {
-        if (batteryLoopReadout) batteryLoopReadout.classList.remove('hidden');
         if (batteryCapacityControls) batteryCapacityControls.classList.remove('hidden');
-        if (solarSlider) solarSlider.value = currentSolarState;
-        if (solarValueDisplay) solarValueDisplay.textContent = currentSolarState;
+        // Default state: battery at 0, solar starting low (autoplay sweeps it up).
+        batteryCapFrameIndex = 0;
+        currentSolarState = 1;
+        if (solarSlider) solarSlider.value = 1;
+        if (solarValueDisplay) solarValueDisplay.textContent = 1;
+        if (batteryScrubber) batteryScrubber.value = 0;
+        if (batteryValueDisplay) batteryValueDisplay.textContent = 0;
+        // The autoplay loop itself is started by runAnimation (battery-capacity-autoplay).
     }
     // Section 5: High-uptime solar is cheapest where people live
     else if (sectionId === 'cheap-populous') {
@@ -1727,6 +1918,16 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
         const lcoeResults = computeLcoeForAllLocations(targetCf);
         showChart = true;
         await showGlobalPopulationLcoeChart(populationData, lcoeResults);
+        if (isStale()) {
+            hideChart();
+            return;
+        }
+
+        // Default to the chart (Demand & Supply by Latitude) each time the section is
+        // entered; expose the toggle so the LCOE map is still one click away.
+        cheapPopulousView = 'chart';
+        if (latitudeViewToggle) latitudeViewToggle.classList.remove('hidden');
+        await applyCheapPopulousView();
         if (isStale()) {
             hideChart();
             return;
@@ -1768,6 +1969,11 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
     // Section 8: Cheap least-cost (diesel/gas) back-up to 100% uptime
     else if (sectionId === 'backup-cost') {
         await Promise.all([ensurePopulationData(), ensureGasData()]);
+        // If the cost basis was left on "local" by an earlier step, make sure the local
+        // CAPEX/WACC tables are present before the back-up LCOE is computed below.
+        if (capexMode === 'local' || waccMode === 'local') {
+            await Promise.all([ensureLocalCapexData(), ensureWaccData()]);
+        }
         if (isStale()) return;
 
         if (inlineTargetCfContainer) inlineTargetCfContainer.classList.remove('hidden');
@@ -1856,7 +2062,7 @@ function updateVisualLabel(label) {
 
 function updateLegend(legendType) {
     // Hide all legends
-    [legendCapacity, legendLcoe, legendPopulation, legendAccess, legendUptime, legendWeekly, legendPotential].forEach(el => {
+    [legendCapacity, legendLcoe, legendPopulation, legendAccess, legendNoAccess, legendUptime, legendWeekly, legendPotential].forEach(el => {
         if (el) el.classList.add('hidden');
     });
 
@@ -1865,6 +2071,7 @@ function updateLegend(legendType) {
         'lcoe': legendLcoe,
         'population': legendPopulation,
         'access': legendAccess,
+        'no-access-pop': legendNoAccess,
         'uptime': legendUptime,
         'weekly': legendWeekly,
         'potential': legendPotential
@@ -1876,8 +2083,16 @@ function updateLegend(legendType) {
     }
 
     if (legendType === 'potential' && legendPotentialBuckets) {
+        // Section 1 offers "× Demand" and "Per capita" — both use discrete colour buckets.
+        const isPerCapita = currentPotentialDisplayMode === 'per_capita';
+        if (legendPotentialTitle) {
+            legendPotentialTitle.textContent = isPerCapita
+                ? 'Solar Potential per Capita (MWh/person/yr)'
+                : 'Solar Potential / Demand (×)';
+        }
+        const buckets = isPerCapita ? POTENTIAL_PER_CAPITA_BUCKETS : POTENTIAL_MULTIPLE_BUCKETS;
         const noData = `<div class=\"flex items-center gap-2\"><span class=\"w-3 h-3 rounded-sm\" style=\"background:#6b7280\"></span><span>No data</span></div>`;
-        const items = POTENTIAL_MULTIPLE_BUCKETS.map(bucket => (
+        const items = buckets.map(bucket => (
             `<div class=\"flex items-center gap-2\"><span class=\"w-3 h-3 rounded-sm\" style=\"background:${bucket.color}\"></span><span>${bucket.label}</span></div>`
         ));
         legendPotentialBuckets.innerHTML = `${items.join('')}${noData}`;
@@ -1890,6 +2105,23 @@ function updateLegend(legendType) {
         // Reset the title in case the back-up step left it as "Back-up cost ($/MWh)".
         const lcoeTitle = legendLcoe ? legendLcoe.querySelector('div') : null;
         if (lcoeTitle) lcoeTitle.textContent = 'LCOE ($/MWh)';
+
+        // Note the target capacity factor the solar+battery LCOE is sized for.
+        // Only the planned-capacity step exposes a CF target slider here, so scope
+        // the note to it and track the live slider value when it's visible.
+        if (legendLcoeNote) {
+            const state = getVisualState(currentSection);
+            if (currentSection === 'planned-capacity' && state && Number.isFinite(state.targetCf)) {
+                const liveCf = (targetCfSlider && targetCfContainer && !targetCfContainer.classList.contains('hidden'))
+                    ? parseInt(targetCfSlider.value, 10)
+                    : NaN;
+                const cf = Number.isFinite(liveCf) ? liveCf : state.targetCf;
+                legendLcoeNote.textContent = `Target: ${cf}% capacity factor`;
+                legendLcoeNote.classList.remove('hidden');
+            } else {
+                legendLcoeNote.classList.add('hidden');
+            }
+        }
     }
 }
 
@@ -1907,7 +2139,8 @@ function renderVisualState(state, sectionId = currentSection, renderVersion = se
         const level = state.level || 'level1';
         const displayMode = state.displayMode || 'multiple';
         const latBounds = potentialLatBounds[level] || ensurePotentialLatBounds(level) || null;
-        updatePotentialMap(potentialData, { level, displayMode, demandMap: electricityDemandMap, latBounds });
+        const populationMap = displayMode === 'per_capita' ? ensurePotentialPopulationMap() : null;
+        updatePotentialMap(potentialData, { level, displayMode, demandMap: electricityDemandMap, populationMap, latBounds });
 
     } else if (viewMode === 'lcoe') {
         const targetCf = (state.targetCf || DEFAULT_LCOE_TARGET_CF) / 100;
@@ -2026,7 +2259,8 @@ function getBackupSbTarget() {
 
 // Memoised per-location compute for the back-up step (keyed by sbTarget + cost outlook).
 function getBackupResults(sbTarget) {
-    const key = `${sbTarget}|${lcoeOutlookMultipliers.solar}|${lcoeOutlookMultipliers.battery}`;
+    // capex/wacc mode are part of the key: the global/local cost basis changes the result.
+    const key = `${sbTarget}|${lcoeOutlookMultipliers.solar}|${lcoeOutlookMultipliers.battery}|${capexMode}|${waccMode}`;
     if (backupResultsCache.key === key && backupResultsCache.results) {
         return backupResultsCache.results;
     }
@@ -2035,11 +2269,15 @@ function getBackupResults(sbTarget) {
     return results;
 }
 
-// Per location: pick the cheapest solar+battery config reaching >= sbTarget uptime, then add a
-// diesel genset to cover the rest up to 100%. Returns the full firm LCOE plus the back-up
-// (diesel) cost split into capex (genset) and opex (fuel) per MWh of firm energy.
-// NOTE: this repeats the solar/battery + diesel cost formulas already in computeLcoe()
-// (see [[lcoe-formula-duplicated]]); keep the constants in sync. TODO: consolidate.
+// Per location, ASSUME solar+battery delivers exactly the slider's uptime (sbTarget) in
+// every region, then price the least-cost gas/diesel back-up that covers the remaining
+// (1 - sbTarget) up to 100%. The back-up share is therefore the same everywhere; the cost
+// varies only by local fuel price, gas availability and cost of capital — so every region
+// gets a back-up cost (no NA on the map). We still check whether solar+battery could really
+// hit the target: if so we attach the cheapest such config's specs for the hover, otherwise
+// the hover just says no details are available.
+// NOTE: reuses the diesel/gas back-up cost formula in backupAnnualCost() (see
+// [[lcoe-formula-duplicated]]); keep the constants in sync.
 function computeBackupLcoeForAllLocations(sbTarget) {
     const results = [];
     const { solarCapex, batteryCapex, solarOpexPct, batteryOpexPct, solarLife, batteryLife, wacc } = lcoeParams;
@@ -2047,82 +2285,145 @@ function computeBackupLcoeForAllLocations(sbTarget) {
     const globalBatteryCapex = batteryCapex * (lcoeOutlookMultipliers.battery || 1);
     const HOURS = 8760;
     const firmMwh = HOURS; // 1 MW firm load at 100% uptime
+    const backupShareCf = Math.max(0, 1 - sbTarget); // forced: the final slice every region must firm
 
     locationIndex.forEach((rows, locationId) => {
+        if (!rows.length) return;
+        const base = rows[0]; // location metadata (id, lat, lon) — shared across its configs
         const localCapex = getLocalCapex(locationId);
         const localWacc = getLocalWacc(locationId);
         const effSolarCapex = localCapex?.solar ?? globalSolarCapex;
         const effBatteryCapex = localCapex?.battery ?? globalBatteryCapex;
         const effWacc = localWacc ?? wacc;
-
-        // 1. Choose cheapest solar+battery config reaching >= sbTarget (fallback: highest CF).
-        let chosen = null;
-        let minSbLcoe = Infinity;
-        let maxCfRow = null;
-        rows.forEach(row => {
-            if (row.solar_gw > 10) return;
-            if (!maxCfRow || row.annual_cf > maxCfRow.annual_cf) maxCfRow = row;
-            if (row.annual_cf >= sbTarget) {
-                const sbLcoe = computeLcoe(row, effSolarCapex, effBatteryCapex, effWacc, solarLife, batteryLife, solarOpexPct, batteryOpexPct);
-                if (sbLcoe < minSbLcoe) { minSbLcoe = sbLcoe; chosen = row; }
-            }
-        });
-        if (!chosen) chosen = maxCfRow;
-        if (!chosen) return;
-
-        // 2. Annualised solar + battery cost for the chosen config.
         const ilr = Number.isFinite(lcoeParams.ilr) && lcoeParams.ilr > 0 ? lcoeParams.ilr : 1;
-        const solarCapexTotal = chosen.solar_gw * 1000 * effSolarCapex / ilr;
-        const batteryCapexTotal = chosen.batt_gwh * 1000 * effBatteryCapex;
+        const solarCrf = crf(effWacc, solarLife);
+        const batteryCrf = crf(effWacc, batteryLife);
         const solarOpexEscalMult = levelizedGrowthMultiplier(lcoeParams.solarOpexEscalationPct || 0, effWacc, solarLife);
         const batteryOpexEscalMult = levelizedGrowthMultiplier(lcoeParams.batteryOpexEscalationPct || 0, effWacc, batteryLife);
-        const sbAnnualCost = solarCapexTotal * crf(effWacc, solarLife) + solarCapexTotal * solarOpexPct * solarOpexEscalMult
-            + batteryCapexTotal * crf(effWacc, batteryLife) + batteryCapexTotal * batteryOpexPct * batteryOpexEscalMult;
 
-        // 3. Least-cost firm back-up (diesel flat vs regional gas) fills from the config's uptime to 100%.
-        const solarCf = Math.min(chosen.annual_cf, 1);
-        const backupShareCf = Math.max(0, 1 - solarCf);
-        const backup = backupAnnualCost(chosen.location_id, backupShareCf, effWacc);
-
+        // Back-up cost for the forced (1 - sbTarget) slice — identical share in every region.
+        const backup = backupAnnualCost(base.location_id, backupShareCf, effWacc);
         const backupCapexPerMwh = backup.capexAnnual / firmMwh;
         const backupOpexPerMwh = backup.fuelAnnual / firmMwh;
-        const fullLcoe = (sbAnnualCost + backup.totalAnnual) / firmMwh;
+        const backupTotalPerMwh = backupCapexPerMwh + backupOpexPerMwh;
 
-        results.push({
-            ...chosen,
-            lcoe: fullLcoe,
-            meetsTarget: true,
-            solar_share_cf: solarCf,
-            diesel_share_cf: backupShareCf,
+        // Feasibility (hover specs only): cheapest real solar+battery config that actually
+        // reaches >= sbTarget. If none does, the region has no specs to show.
+        let reachConfig = null;
+        let minSbCost = Infinity;
+        rows.forEach(row => {
+            if (row.solar_gw > 10 || row.annual_cf < sbTarget) return;
+            const solarCapexTotal = row.solar_gw * 1000 * effSolarCapex / ilr;
+            const batteryCapexTotal = row.batt_gwh * 1000 * effBatteryCapex;
+            const sbAnnualCost = solarCapexTotal * solarCrf + solarCapexTotal * solarOpexPct * solarOpexEscalMult
+                + batteryCapexTotal * batteryCrf + batteryCapexTotal * batteryOpexPct * batteryOpexEscalMult;
+            if (sbAnnualCost < minSbCost) { minSbCost = sbAnnualCost; reachConfig = row; }
+        });
+
+        const result = {
+            location_id: base.location_id,
+            latitude: base.latitude,
+            longitude: base.longitude,
+            meetsTarget: true,            // back-up cost is defined everywhere — colour all cells
+            sbReachable: !!reachConfig,   // could solar+battery really hit the target here?
+            firm_cf: 1,
+            solar_share_cf: sbTarget,     // assumed, not derived from a config
             backup_share_cf: backupShareCf,
+            diesel_share_cf: backupShareCf,
             backup_fuel: backup.fuel,
+            includeDieselBackup: true,
             backup_capex_per_mwh: backupCapexPerMwh,
             backup_opex_per_mwh: backupOpexPerMwh,
-            backup_total_per_mwh: backupCapexPerMwh + backupOpexPerMwh
-        });
+            backup_total_per_mwh: backupTotalPerMwh,
+            backup_lcoe_adder: backupTotalPerMwh,
+            diesel_lcoe_adder: backupTotalPerMwh
+        };
+        if (reachConfig) {
+            result.solar_gw = reachConfig.solar_gw;
+            result.batt_gwh = reachConfig.batt_gwh;
+            result.reach_cf = reachConfig.annual_cf;
+        }
+        results.push(result);
     });
     return results;
 }
 
-// Colour the map by the full firm (100%-uptime) LCOE for the current sbTarget.
+// Build the colour scale for the back-up-only heatmap. Colours by backup_total_per_mwh
+// (the gas/diesel back-up cost spread over all firm energy), with an adaptive max so the
+// scale keeps good contrast as the slider moves the back-up share up and down. The domain
+// stop proportions mirror the LCOE legend gradient (0/15/45/65/82.5/100%) so the legend
+// bar stays accurate.
+function buildBackupColorInfo(results) {
+    const valid = results.filter(r => r.meetsTarget && Number.isFinite(r.backup_total_per_mwh));
+    // Population-weight the scale so it tracks what most people experience (matching the
+    // chart and the legend framing) rather than being dragged high by sparse, weak-solar
+    // regions where back-up carries a large share. Falls back to an unweighted percentile
+    // when population data isn't loaded yet.
+    const popById = new Map();
+    (populationData || []).forEach(row => {
+        const pop = Number(row.population_2020 || 0);
+        if (pop > 0) popById.set(Number(row.location_id), pop);
+    });
+    let max = 40;
+    if (valid.length) {
+        const sorted = valid
+            .map(r => ({ cost: r.backup_total_per_mwh, pop: popById.get(Number(r.location_id)) || 0 }))
+            .sort((a, b) => a.cost - b.cost);
+        // Population-weighted percentile across all covered regions, so the scale tracks the
+        // back-up cost most people would actually pay.
+        const reachPop = sorted.reduce((s, x) => s + x.pop, 0);
+        if (reachPop > 0) {
+            const cutoff = reachPop * 0.9; // 90% of people at or below this cost
+            let acc = 0, p90 = sorted[sorted.length - 1].cost;
+            for (const s of sorted) { acc += s.pop; if (acc >= cutoff) { p90 = s.cost; break; } }
+            max = Math.max(20, Math.ceil(p90 / 10) * 10);
+        } else {
+            const p85 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.85))].cost;
+            max = Math.max(20, Math.ceil(p85 / 10) * 10);
+        }
+    }
+    const domain = [0, 0.15 * max, 0.45 * max, 0.65 * max, 0.825 * max, max];
+    return { type: 'lcoe', metric: 'backup_total_per_mwh', valueLabel: 'Back-up cost', domain, max };
+}
+
+// Colour the map by the cost of the firming back-up only (not the solar + battery), i.e.
+// what it costs to lift a sbTarget% solar+battery system to 100% uptime.
 function renderBackupMap(sbTarget) {
     const results = getBackupResults(sbTarget);
-    const colorInfo = buildLcoeColorInfo(results);
+    const colorInfo = buildBackupColorInfo(results);
     lastLcoeResults = results;
     lastLcoeColorInfo = colorInfo;
     updateLcoeMap(results, { colorInfo });
-    updateLegend('lcoe');
+    updateBackupLegend(sbTarget, colorInfo);
     updateVisualLabel({
-        title: 'Cost of 100% Uptime',
-        subtitle: `Solar + battery to ${Math.round(sbTarget * 100)}% uptime, least-cost gas/diesel back-up for the rest`
+        title: 'Cost of the back-up only',
+        subtitle: `Gas/diesel back-up to lift a solar + battery system from ${Math.round(sbTarget * 100)}% to 100% uptime`
     });
+}
+
+// The back-up step reuses the cost legend element but relabels it for back-up-only cost
+// and explains, in the note, that the cost buys 100% uptime from a sbTarget% S+B system.
+function updateBackupLegend(sbTarget, colorInfo) {
+    updateLegend('lcoe'); // show the cost gradient, hide the others
+    const pct = Math.round(sbTarget * 100);
+    const restPct = Math.max(0, 100 - pct);
+    const max = colorInfo?.max || 40;
+    const lcoeTitle = legendLcoe ? legendLcoe.querySelector('div') : null;
+    if (lcoeTitle) lcoeTitle.textContent = 'Back-up cost ($/MWh)';
+    if (legendLcoeMin) legendLcoeMin.textContent = '$0';
+    if (legendLcoeMid) legendLcoeMid.textContent = `$${Math.round(max / 2)}`;
+    if (legendLcoeMax) legendLcoeMax.textContent = `$${Math.round(max)}+`;
+    if (legendLcoeNote) {
+        legendLcoeNote.innerHTML = `Gas/diesel back-up for the final ${restPct}%`
+            + ` <span class="text-gray-500">&mdash; assumes solar + battery reaches ${pct}% everywhere.</span>`;
+        legendLcoeNote.classList.remove('hidden');
+    }
 }
 
 // Re-label the shared inline uptime slider depending on the active section.
 function configureInlineSliderForSection(sectionId) {
     const isBackup = sectionId === 'backup-cost';
     if (targetCfLabel) targetCfLabel.textContent = isBackup ? 'Target Solar + Battery Uptime' : 'Target Uptime';
-    if (dieselBackupRow) dieselBackupRow.classList.toggle('hidden', isBackup);
 }
 
 // ========== ANIMATIONS ==========
@@ -2136,6 +2437,11 @@ function stopAnimations() {
         clearTimeout(animationTimer);
         animationTimer = null;
     }
+    if (batteryCapAutoplayTimer) {
+        clearTimeout(batteryCapAutoplayTimer);
+        batteryCapAutoplayTimer = null;
+    }
+    batteryCapPlaying = false;
     if (animationIndicator) {
         animationIndicator.classList.add('hidden');
     }
@@ -2157,13 +2463,88 @@ function runAnimation(sectionId, state, renderVersion = sectionRenderVersion) {
 
     const { type, from, to, duration, easing, loop, steps } = animation;
 
-    if (type === 'battery-loop' && loop) {
+    if (type === 'battery-capacity-autoplay') {
+        // Section 2: sweep solar then battery; scrubbable + Play/Pause.
+        batteryCapFrameIndex = 0;
+        startBatteryCapAutoplay(sectionId, state, renderVersion);
+    } else if (type === 'battery-loop' && loop) {
         // Looping animation through discrete steps
         runLoopingAnimation(sectionId, state, steps || [0, 8, 16, 24], duration, renderVersion);
     } else if (type === 'battery-slider') {
         // One-shot animation from->to
         runOneShotAnimation(sectionId, state, from, to, duration, easing, renderVersion);
     }
+}
+
+// ========== SECTION 2: BATTERY-CAPACITY AUTOPLAY ==========
+// Frames sweep solar 1->10 at battery 0 (the solar-only ceiling), then battery 0->36 at
+// max solar (storage filling in). Either slider can be grabbed to scrub (pauses autoplay).
+function getBatteryCapFrames() {
+    if (batteryCapFramesCache) return batteryCapFramesCache;
+    const frames = [];
+    for (let s = 1; s <= 10; s += 1) frames.push([s, 0]);
+    for (let b = 2; b <= 36; b += 2) frames.push([10, b]);
+    batteryCapFramesCache = frames;
+    return frames;
+}
+
+function nearestBatteryCapFrame(solar, battery) {
+    const frames = getBatteryCapFrames();
+    let best = 0;
+    let bestDist = Infinity;
+    frames.forEach(([s, b], i) => {
+        const dist = Math.abs(s - solar) + Math.abs(b - battery);
+        if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    return best;
+}
+
+function updateBatteryPlayBtn() {
+    if (!batteryPlayBtn) return;
+    const label = batteryPlayBtn.querySelector('#battery-play-label');
+    const icon = batteryPlayBtn.querySelector('.material-symbols-outlined');
+    if (label) label.textContent = batteryCapPlaying ? 'Pause' : 'Play';
+    if (icon) icon.textContent = batteryCapPlaying ? 'pause' : 'play_arrow';
+}
+
+function applyBatteryCapFrame(solar, battery, state, sectionId, renderVersion) {
+    currentSolarState = solar;
+    if (solarSlider) solarSlider.value = solar;
+    if (solarValueDisplay) solarValueDisplay.textContent = solar;
+    if (batteryScrubber) batteryScrubber.value = battery;
+    if (batteryValueDisplay) batteryValueDisplay.textContent = battery;
+    const cfData = getSummaryForConfig(solar, battery);
+    updateMap(cfData, solar, battery, { ...(state?.mapOptions || {}), preFiltered: true });
+    markIncomingReady(sectionId, renderVersion);
+}
+
+function startBatteryCapAutoplay(sectionId = 'battery-capacity', state = getVisualState('battery-capacity'), renderVersion = sectionRenderVersion) {
+    stopBatteryCapAutoplay();
+    if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
+    batteryCapPlaying = true;
+    updateBatteryPlayBtn();
+    const frames = getBatteryCapFrames();
+
+    const tick = () => {
+        if (!isSectionRenderCurrent(sectionId, renderVersion)) {
+            stopBatteryCapAutoplay();
+            return;
+        }
+        const [s, b] = frames[batteryCapFrameIndex % frames.length];
+        applyBatteryCapFrame(s, b, state, sectionId, renderVersion);
+        batteryCapFrameIndex = (batteryCapFrameIndex + 1) % frames.length;
+        batteryCapAutoplayTimer = setTimeout(tick, BATTERY_CAP_STEP_MS);
+    };
+    tick();
+}
+
+function stopBatteryCapAutoplay() {
+    if (batteryCapAutoplayTimer) {
+        clearTimeout(batteryCapAutoplayTimer);
+        batteryCapAutoplayTimer = null;
+    }
+    batteryCapPlaying = false;
+    updateBatteryPlayBtn();
 }
 
 function runLoopingAnimation(sectionId, state, steps, totalDuration, renderVersion = sectionRenderVersion) {
@@ -2256,7 +2637,11 @@ function runOneShotAnimation(sectionId, state, from, to, duration, easing, rende
 
 // ========== SCROLL FADE LOGIC ==========
 function handleScroll() {
-    if (scrollOpacityRaf) return;
+    // rAF-throttle, but never trust a pending frame older than ~200ms: if the browser
+    // dropped it (tab restore, throttling), re-arm instead of wedging the pipeline.
+    const now = performance.now();
+    if (scrollOpacityRaf !== null && now - scrollRafRequestedTs < 200) return;
+    scrollRafRequestedTs = now;
     scrollOpacityRaf = requestAnimationFrame(() => {
         scrollOpacityRaf = null;
         updateScrollOpacity();
@@ -2271,14 +2656,9 @@ function buildScrollSections() {
             || section;
         return {
             sectionId: section?.dataset?.section || null,
-            element: bucket
+            element: bucket,
+            sectionEl: section
         };
-    });
-    scrollSectionIndex = new Map();
-    scrollSections.forEach((entry, index) => {
-        if (entry?.sectionId) {
-            scrollSectionIndex.set(entry.sectionId, index);
-        }
     });
 }
 
@@ -2316,7 +2696,10 @@ function computeScrollMetrics() {
             segmentProgress: 0,
             opacity: 0,
             isBlackHold: false,
-            activeIdx
+            activeIdx,
+            viewportCenter,
+            gapStart: null,
+            gapEnd: null
         };
     }
 
@@ -2339,7 +2722,10 @@ function computeScrollMetrics() {
             segmentProgress: 0,
             opacity: 0,
             isBlackHold: false,
-            activeIdx: -1
+            activeIdx: -1,
+            viewportCenter,
+            gapStart: null,
+            gapEnd: null
         };
     }
 
@@ -2353,7 +2739,10 @@ function computeScrollMetrics() {
             segmentProgress: 0,
             opacity: 0,
             isBlackHold: false,
-            activeIdx: -1
+            activeIdx: -1,
+            viewportCenter,
+            gapStart,
+            gapEnd
         };
     }
 
@@ -2390,38 +2779,90 @@ function computeScrollMetrics() {
         segmentProgress: 0,
         opacity: clampedOpacity,
         isBlackHold,
-        activeIdx: -1
+        activeIdx: -1,
+        viewportCenter,
+        gapStart,
+        gapEnd
     };
 }
 
-function shouldDelaySection(sectionId, metrics = null) {
-    if (!sectionId) return false;
-    const info = metrics || lastScrollMetrics || computeScrollMetrics();
-    if (!info) return false;
-
-    const targetIndex = scrollSectionIndex.get(sectionId);
-    if (typeof targetIndex !== 'number') return false;
-
-    const { prevIdx, nextIdx, isBlackHold, activeIdx } = info;
-    if (activeIdx !== -1) {
-        return activeIdx !== targetIndex;
-    }
-    if (isBlackHold) return false;
-    if (prevIdx === nextIdx) return false;
-    if (targetIndex === nextIdx || targetIndex === prevIdx) return true;
-
-    return false;
+// Mark the section element (amber side bar) that matches the committed section.
+function updateActiveSectionClass(sectionId) {
+    if (!scrollSections.length) buildScrollSections();
+    scrollSections.forEach(entry => {
+        entry.sectionEl?.classList.toggle('active', entry.sectionId === sectionId);
+    });
 }
 
-function maybeApplyPendingSection(metrics = null) {
-    if (!pendingSectionId) return;
-    if (shouldDelaySection(pendingSectionId, metrics)) return;
-    const sectionId = pendingSectionId;
-    const renderVersion = pendingSectionVersion || sectionRenderVersion;
-    pendingSectionId = null;
-    pendingSectionVersion = 0;
-    if (!isSectionRenderCurrent(sectionId, renderVersion)) return;
-    applyVisualState(sectionId, renderVersion);
+// Resolve which section the scroll position points at: the section whose text bucket
+// contains the viewport centre, or — in the gap between two buckets — the previous
+// section until the gap midpoint and the next one after it. The midpoint sits inside
+// the fully-black hold zone of the overlay fade, so the map swap it triggers is hidden.
+function resolveScrollSectionId(metrics) {
+    if (!metrics) return null;
+    const { activeIdx, prevIdx, nextIdx, viewportCenter, gapStart, gapEnd } = metrics;
+    if (activeIdx !== -1) return scrollSections[activeIdx]?.sectionId || null;
+    if (prevIdx === -1 && nextIdx === -1) return null;
+    if (prevIdx === -1) return scrollSections[nextIdx]?.sectionId || null;
+    if (nextIdx === -1) return scrollSections[prevIdx]?.sectionId || null;
+
+    const prevId = scrollSections[prevIdx]?.sectionId || null;
+    const nextId = scrollSections[nextIdx]?.sectionId || null;
+    const mid = ((gapStart ?? viewportCenter) + (gapEnd ?? viewportCenter)) / 2;
+    // Hysteresis: once a side is current, only flip after clearly crossing the midpoint,
+    // so trackpad jitter right at the boundary can't thrash the map back and forth.
+    if (currentSection === prevId) {
+        return viewportCenter > mid + GAP_SWITCH_HYSTERESIS_PX ? nextId : prevId;
+    }
+    if (currentSection === nextId) {
+        return viewportCenter < mid - GAP_SWITCH_HYSTERESIS_PX ? prevId : nextId;
+    }
+    return viewportCenter < mid ? prevId : nextId;
+}
+
+// Commit scroll-resolved section changes, throttled so a fast fling through several
+// sections doesn't queue a heavy render for each one it passes: the first switch is
+// immediate, follow-ups within the window collapse into one trailing commit that always
+// lands on the latest resolved section — never a stale intermediate.
+function syncSectionToScroll(metrics) {
+    const targetId = resolveScrollSectionId(metrics);
+    if (!targetId || targetId === currentSection) {
+        // Settled back on the current section: drop any queued switch.
+        pendingScrollSectionId = null;
+        if (sectionCommitTimer) {
+            clearTimeout(sectionCommitTimer);
+            sectionCommitTimer = null;
+        }
+        return;
+    }
+    if (targetId !== pendingScrollSectionId) {
+        pendingScrollSectionId = targetId;
+        if (sectionCommitTimer) {
+            clearTimeout(sectionCommitTimer);
+            sectionCommitTimer = null;
+        }
+    }
+    // Re-check on every scroll frame rather than trusting the timer alone, so the
+    // pending switch can never wedge if a queued callback gets dropped.
+    const waitMs = SECTION_COMMIT_MIN_INTERVAL_MS - (performance.now() - lastSectionCommitTs);
+    if (waitMs <= 0) {
+        if (sectionCommitTimer) {
+            clearTimeout(sectionCommitTimer);
+            sectionCommitTimer = null;
+        }
+        commitPendingScrollSection();
+    } else if (!sectionCommitTimer) {
+        sectionCommitTimer = setTimeout(commitPendingScrollSection, waitMs);
+    }
+}
+
+function commitPendingScrollSection() {
+    sectionCommitTimer = null;
+    const sectionId = pendingScrollSectionId;
+    pendingScrollSectionId = null;
+    if (!sectionId || sectionId === currentSection) return;
+    lastSectionCommitTs = performance.now();
+    onSectionEnter(sectionId);
 }
 
 function updateScrollOpacity() {
@@ -2433,7 +2874,7 @@ function updateScrollOpacity() {
     lastScrollMetrics = metrics;
     currentScrollOpacity = metrics.opacity;
     applyOverlay();
-    maybeApplyPendingSection(metrics);
+    syncSectionToScroll(metrics);
 }
 
 // ----- Overlay opacity: max of the scroll-driven fade and the readiness hold -----

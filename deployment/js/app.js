@@ -23,7 +23,7 @@ import {
     capitalizeWord, formatNumber, formatCurrency, coordKey, roundedKey,
     haversineKm, updateToggleUI, capitalRecoveryFactor as crf, levelizedGrowthMultiplier
 } from './utils.js';
-import { ALL_FUELS, FUEL_COLORS, TX_WACC, TX_LIFE, BASE_LOAD_MW, DIESEL_THERMAL_KWH_PER_LITER, DIESEL_PRICE_FLOOR_USD_PER_LITER, MMBTU_PER_MWH, LCOE_NO_DATA_COLOR, VIEW_MODE_EXPLANATIONS, CF_COLOR_SCALE, POTENTIAL_MULTIPLE_BUCKETS, FEATURE_WORKER_LCOE } from './constants.js';
+import { ALL_FUELS, FUEL_COLORS, TX_WACC, TX_LIFE, BASE_LOAD_MW, DIESEL_THERMAL_KWH_PER_LITER, DIESEL_PRICE_FLOOR_USD_PER_LITER, MMBTU_PER_MWH, LCOE_NO_DATA_COLOR, VIEW_MODE_EXPLANATIONS, CF_COLOR_SCALE, POTENTIAL_MULTIPLE_BUCKETS, POTENTIAL_PER_CAPITA_BUCKETS, FEATURE_WORKER_LCOE } from './constants.js';
 import { createSharedPopup, buildPlantTooltip } from './tooltip.js';
 import { initTour } from './tour.js';
 
@@ -54,6 +54,7 @@ let fossilCapacity = []; // Keep this as it's used in ensureFossilDataLoaded
 let fossilCapacityMap = null; // location_id -> { coal_Announced, ... }
 let electricityDemandData = [];
 let electricityDemandMap = null; // location_id -> annual_demand_kwh
+let potentialPopulationMap = null; // location_id -> population_2020 (for per-capita potential)
 let reliabilityData = []; // Array of { location_id, avg_reliability, ... }
 let reliabilityMap = null; // location_id -> avg_reliability
 let waccDataLoaded = false;
@@ -2774,37 +2775,41 @@ function updateSupplyLegend(overlayMode = 'none', lcoeColorInfo = null, potentia
         if (legendSupplyPotential) legendSupplyPotential.classList.remove('hidden');
         const hasData = potentialState && potentialState.valueCount;
         const isMultiple = potentialState?.isMultiple;
+        const isPerCapita = potentialState?.isPerCapita;
+        const usesBuckets = Boolean(isMultiple || isPerCapita);
+        const buckets = isPerCapita ? POTENTIAL_PER_CAPITA_BUCKETS : POTENTIAL_MULTIPLE_BUCKETS;
         if (legendSupplyPotentialTitle) {
             legendSupplyPotentialTitle.textContent = isMultiple
                 ? 'Solar Generation Potential / Electricity Demand Today (x multiple)'
-                : 'Solar Generation Potential (TWh/yr)';
+                : isPerCapita
+                    ? 'Solar Generation Potential per Capita (MWh / person / year)'
+                    : 'Solar Generation Potential (TWh/yr)';
         }
         if (legendSupplyPotentialBar) {
-            legendSupplyPotentialBar.classList.toggle('legend-gradient-potential-multiple', Boolean(isMultiple));
-            legendSupplyPotentialBar.classList.toggle('legend-gradient-potential', !isMultiple);
-            legendSupplyPotentialBar.classList.toggle('hidden', Boolean(isMultiple));
+            legendSupplyPotentialBar.classList.toggle('legend-gradient-potential', !usesBuckets);
+            legendSupplyPotentialBar.classList.toggle('hidden', usesBuckets);
         }
         if (legendSupplyPotentialBuckets) {
-            legendSupplyPotentialBuckets.classList.toggle('hidden', !isMultiple);
-            if (isMultiple) {
+            legendSupplyPotentialBuckets.classList.toggle('hidden', !usesBuckets);
+            if (usesBuckets) {
                 const noData = `<div class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm" style="background:#6b7280"></span><span>No data</span></div>`;
-                const items = POTENTIAL_MULTIPLE_BUCKETS.map(bucket => (
+                const items = buckets.map(bucket => (
                     `<div class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm" style="background:${bucket.color}"></span><span>${bucket.label}</span></div>`
                 ));
                 legendSupplyPotentialBuckets.innerHTML = `${items.join('')}${noData}`;
             }
         }
         if (legendSupplyPotentialMin) {
-            legendSupplyPotentialMin.textContent = hasData && !isMultiple
+            legendSupplyPotentialMin.textContent = hasData && !usesBuckets
                 ? formatNumber(potentialState.min, 2)
                 : '';
-            legendSupplyPotentialMin.classList.toggle('hidden', Boolean(isMultiple));
+            legendSupplyPotentialMin.classList.toggle('hidden', usesBuckets);
         }
         if (legendSupplyPotentialMax) {
-            legendSupplyPotentialMax.textContent = hasData && !isMultiple
+            legendSupplyPotentialMax.textContent = hasData && !usesBuckets
                 ? formatNumber(potentialState.max, 2)
                 : '';
-            legendSupplyPotentialMax.classList.toggle('hidden', Boolean(isMultiple));
+            legendSupplyPotentialMax.classList.toggle('hidden', usesBuckets);
         }
     } else {
         hideSupplyLegends();
@@ -3118,6 +3123,11 @@ function getPotentialMetricFromRow(row, potentialState) {
     if (potentialState.displayMode === 'multiple') {
         if (comp.demandTwh <= 0) return null;
         return comp.total / comp.demandTwh;
+    }
+    if (potentialState.displayMode === 'per_capita') {
+        const pop = potentialState.populationMap ? Number(potentialState.populationMap.get(row.location_id) || 0) : 0;
+        if (!(pop > 0)) return null;
+        return (comp.total * 1e6) / pop;
     }
     return comp.total;
 }
@@ -5627,6 +5637,28 @@ function updateSampleView() {
     }
 }
 
+// Build (and cache) a location_id -> population map for the per-capita potential
+// view. Population is keyed by lat/lon (full float) while potential is keyed by
+// location_id + 6-decimal lat/lon, so we join on a 2-decimal coordinate key —
+// the same tolerance the population overlays use. (2 decimals matches 4921/4926
+// zones with zero key collisions; finer keys lose zones to boundary rounding.)
+function ensurePotentialPopulationMap() {
+    if (potentialPopulationMap) return potentialPopulationMap;
+    const coord2 = (lat, lon) => `${Number(lat).toFixed(2)},${Number(lon).toFixed(2)}`;
+    const popByCoord = new Map();
+    populationData.forEach(p => {
+        if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) return;
+        popByCoord.set(coord2(p.latitude, p.longitude), p.population_2020);
+    });
+    const map = new Map();
+    potentialData.forEach(row => {
+        const pop = popByCoord.get(coord2(row.latitude, row.longitude));
+        if (pop !== undefined) map.set(row.location_id, pop);
+    });
+    potentialPopulationMap = map;
+    return map;
+}
+
 async function getPotentialOverlayState() {
     const loaded = await ensurePotentialDataLoaded();
     if (!loaded) return null;
@@ -5636,13 +5668,19 @@ async function getPotentialOverlayState() {
         ? 'pvout_level2_data_area_km2'
         : 'pvout_level1_data_area_km2';
     const isMultiple = potentialDisplayMode === 'multiple';
+    const isPerCapita = potentialDisplayMode === 'per_capita';
     let demandMap = null;
+    let populationMap = null;
     let latBounds = potentialLatBounds[potentialLevel];
 
     if (isMultiple) {
         const demandLoaded = await ensureElectricityDataLoaded();
         if (!demandLoaded) return null;
         demandMap = electricityDemandMap;
+    } else if (isPerCapita) {
+        const popLoaded = await ensurePopulationDataLoaded();
+        if (!popLoaded) return null;
+        populationMap = ensurePotentialPopulationMap();
     }
 
     if (!latBounds) {
@@ -5676,9 +5714,11 @@ async function getPotentialOverlayState() {
             level: potentialLevel,
             displayMode: potentialDisplayMode,
             isMultiple,
+            isPerCapita,
             min: null,
             max: null,
             demandMap,
+            populationMap,
             latBounds,
             key,
             valueCount: 0
@@ -5696,9 +5736,11 @@ async function getPotentialOverlayState() {
         level: potentialLevel,
         displayMode: potentialDisplayMode,
         isMultiple,
+        isPerCapita,
         min: minVal,
         max: maxVal,
         demandMap,
+        populationMap,
         latBounds,
         key,
         valueCount: values.length
@@ -5711,7 +5753,7 @@ async function updatePotentialView() {
     if (!state) return;
     if (currentViewMode !== 'potential') return;
 
-    const { data, isMultiple, min, max, demandMap, latBounds, level, displayMode, valueCount } = state;
+    const { data, isMultiple, isPerCapita, min, max, demandMap, populationMap, latBounds, level, displayMode, valueCount } = state;
     syncPotentialToggleUI();
 
     if (!valueCount) {
@@ -5721,19 +5763,26 @@ async function updatePotentialView() {
         return;
     }
 
+    // "× Demand" and "per capita" both colour by discrete buckets; only "Total"
+    // uses the continuous green gradient with numeric min/max.
+    const usesBuckets = isMultiple || isPerCapita;
+    const buckets = isPerCapita ? POTENTIAL_PER_CAPITA_BUCKETS : POTENTIAL_MULTIPLE_BUCKETS;
     if (legendPotentialTitle) {
-        legendPotentialTitle.textContent = isMultiple ? 'Solar Generation Potential / Electricity Demand Today (x multiple)' : 'Solar Generation Potential (TWh/yr)';
+        legendPotentialTitle.textContent = isMultiple
+            ? 'Solar Generation Potential / Electricity Demand Today (x multiple)'
+            : isPerCapita
+                ? 'Solar Generation Potential per Capita (MWh / person / year)'
+                : 'Solar Generation Potential (TWh/yr)';
     }
     if (legendPotentialBar) {
-        legendPotentialBar.classList.toggle('legend-gradient-potential-multiple', isMultiple);
-        legendPotentialBar.classList.toggle('legend-gradient-potential', !isMultiple);
-        legendPotentialBar.classList.toggle('hidden', isMultiple);
+        legendPotentialBar.classList.toggle('legend-gradient-potential', !usesBuckets);
+        legendPotentialBar.classList.toggle('hidden', usesBuckets);
     }
     if (legendPotentialBuckets) {
-        legendPotentialBuckets.classList.toggle('hidden', !isMultiple);
-        if (isMultiple) {
+        legendPotentialBuckets.classList.toggle('hidden', !usesBuckets);
+        if (usesBuckets) {
             const noData = `<div class=\"flex items-center gap-2\"><span class=\"w-3 h-3 rounded-sm\" style=\"background:#6b7280\"></span><span>No data</span></div>`;
-            const items = POTENTIAL_MULTIPLE_BUCKETS.map(bucket => (
+            const items = buckets.map(bucket => (
                 `<div class=\"flex items-center gap-2\"><span class=\"w-3 h-3 rounded-sm\" style=\"background:${bucket.color}\"></span><span>${bucket.label}</span></div>`
             ));
             legendPotentialBuckets.innerHTML = `${items.join('')}${noData}`;
@@ -5741,12 +5790,12 @@ async function updatePotentialView() {
     }
 
     if (legendPotentialMin) {
-        legendPotentialMin.textContent = isMultiple ? '' : formatNumber(min, 2);
-        legendPotentialMin.classList.toggle('hidden', isMultiple);
+        legendPotentialMin.textContent = usesBuckets ? '' : formatNumber(min, 2);
+        legendPotentialMin.classList.toggle('hidden', usesBuckets);
     }
     if (legendPotentialMax) {
-        legendPotentialMax.textContent = isMultiple ? '' : formatNumber(max, 2);
-        legendPotentialMax.classList.toggle('hidden', isMultiple);
+        legendPotentialMax.textContent = usesBuckets ? '' : formatNumber(max, 2);
+        legendPotentialMax.classList.toggle('hidden', usesBuckets);
     }
 
     updatePotentialMap(data, {
@@ -5755,6 +5804,7 @@ async function updatePotentialView() {
         max,
         displayMode,
         demandMap,
+        populationMap,
         latBounds
     });
 }

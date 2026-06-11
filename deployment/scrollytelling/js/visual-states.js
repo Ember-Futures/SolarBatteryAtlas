@@ -42,19 +42,7 @@ export const visualStates = {
         }
     },
 
-    // Section 1: Baseload Solar is Widespread
-    'widespread': {
-        viewMode: 'capacity',
-        solar: 6,
-        battery: 20,
-        legend: 'capacity',
-        label: {
-            title: 'One configuration, every region',
-            subtitle: '6 MW DC solar, ~20 MWh battery, applied worldwide'
-        }
-    },
-
-    // Section 2: Solar Potential Map
+    // Section 1: The world does not lack sunlight
     'potential-map': {
         viewMode: 'potential',
         level: 'level1',
@@ -66,20 +54,16 @@ export const visualStates = {
         }
     },
 
-    // Section 4: Batteries Make All the Difference (looping animation)
+    // Section 2: Batteries Make All the Difference
+    // Scrubbable solar + battery with a Play button that sweeps through both. Default on
+    // entry: battery 0, solar auto-playing (sweeps solar first, then fills in battery).
     'battery-capacity': {
         viewMode: 'capacity',
-        solar: 6,
-        battery: 24, // Final state
+        solar: 1,
+        battery: 0,
         legend: 'capacity',
         animation: {
-            type: 'battery-loop',
-            from: 0,
-            to: 24,
-            steps: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24],
-            duration: 13000, // 13s total (1s per step)
-            easing: 'easeInOut',
-            loop: true
+            type: 'battery-capacity-autoplay'
         },
         label: {
             title: '',
@@ -87,7 +71,7 @@ export const visualStates = {
         }
     },
 
-    // Section 3: Batteries Make the Sun Shine After Dark
+    // Section 3: Most solar variability is daily (weekly hourly profile)
     'battery-shadow': {
         viewMode: 'weekly-sample',
         location: 'UAE', // Representative location
@@ -100,7 +84,7 @@ export const visualStates = {
         }
     },
 
-    // Section 5: High-uptime solar is cheapest where people live
+    // Section 4: Cheap exactly where most people live
     'cheap-populous': {
         viewMode: 'lcoe',
         targetCf: 80,
@@ -114,7 +98,7 @@ export const visualStates = {
         }
     },
 
-    // Section 6: Cheap exactly where electricity access is weakest
+    // Section 5: Cheap where electricity is missing
     'cheap-access': {
         viewMode: 'no-access',
         baseLayer: 'access',
@@ -132,7 +116,7 @@ export const visualStates = {
         }
     },
 
-    // Section 7: Better Uptime Than Many Grids
+    // Section 6: Beating many grids on uptime
     'better-uptime': {
         viewMode: 'uptime-comparison',
         solar: 6,
@@ -147,7 +131,7 @@ export const visualStates = {
         }
     },
 
-    // Section 8: Cheap Back-up to 100% Uptime
+    // Section 7: From 90-95% to 100% with cheap back-up
     'backup-cost': {
         viewMode: 'backup',
         sbTarget: 95, // default target solar + battery uptime (%); diesel fills the rest to 100%
@@ -161,10 +145,10 @@ export const visualStates = {
         }
     },
 
-    // Section 9: Cheap Where New Capacity is Planned
+    // Section 8: Planned fossil capacity is exposed
     'planned-capacity': {
         viewMode: 'lcoe',
-        targetCf: 80,
+        targetCf: 75,
         overlayPlants: 'announced', // Announced + construction
         legend: 'lcoe',
         mapView: {
@@ -172,14 +156,14 @@ export const visualStates = {
         },
         label: {
             title: 'Where the next fossil plants are planned',
-            subtitle: 'Planned coal, gas & nuclear vs. the solar alternative'
+            subtitle: 'Planned coal & gas vs. the solar alternative'
         }
     },
 
-    // Section 10: LCOE Outlook
+    // Section 9: Falling costs (LCOE outlook to 2050)
     'lcoe-outlook': {
         viewMode: 'lcoe',
-        targetCf: 80,
+        targetCf: 75,
         legend: 'lcoe',
         label: {
             title: 'The cost curve to 2050',

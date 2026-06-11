@@ -436,14 +436,17 @@
             </div>
             <div id="potential-display-toggle" class="toggle-group toggle-group-grid">
                 <button data-display="total"
-                    class="toggle-btn">Total
-                    (TWh/yr)</button>
+                    class="toggle-btn">Total</button>
                 <button data-display="multiple"
-                    class="toggle-btn is-active">×
-                    Demand</button>
+                    class="toggle-btn is-active">× Demand</button>
+                <button data-display="per_capita"
+                    class="toggle-btn">Per capita</button>
             </div>
             <div class="text-[10px] text-gray-500">
-                Total = ground-mount (40 MW/km² on technical/policy-suitable land) + rooftop
+                <span class="text-gray-400 font-medium">Total</span> (TWh/yr), <span
+                    class="text-gray-400 font-medium">× Demand</span> (multiple of local demand) or
+                <span class="text-gray-400 font-medium">Per capita</span> (MWh per person/yr).
+                Potential = ground-mount (40 MW/km² on suitable land) + rooftop
                 (100 MW/km² on building footprints, Joshi et al. 2024 SSP2 2020).
             </div>
         </div>
@@ -880,9 +883,11 @@
                         <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Display</label>
                         <div id="supply-potential-display-toggle" class="toggle-group toggle-group-grid">
                             <button data-display="total"
-                                class="toggle-btn">Total (TWh/yr)</button>
+                                class="toggle-btn">Total</button>
                             <button data-display="multiple"
                                 class="toggle-btn is-active">× Demand</button>
+                            <button data-display="per_capita"
+                                class="toggle-btn">Per capita</button>
                         </div>
                         <div class="text-[10px] text-gray-500">Ground-mount 40 MW/km² + rooftop 100 MW/km² (Joshi et al. 2024, SSP2 2020).</div>
                     </div>
@@ -1194,8 +1199,16 @@
                         Group / Solargis). Used in the Potential Map to estimate realistic annual generation per area.
                     </p>
                     <p>
-                        <strong class="text-gray-300">Grid Reliability &amp; Electricity Access:</strong> HREA
-                        (High Resolution Electricity Access), used in the Supply-Demand Matching demand layers.
+                        <strong class="text-gray-300">Grid Reliability &amp; Electricity Access:</strong> High
+                        Resolution Electricity Access (HREA), University of Michigan. Min, B., O'Keeffe, Z., Abidoye,
+                        B., Gaba, K. M., Monroe, T., Stewart, B. P., Baugh, K., &amp; Sánchez-Andrade Nuño, B. (2024).
+                        Lost in the dark: A survey of energy poverty from space. <em>Joule</em>, 8, 1–17.
+                        <a href="https://doi.org/10.1016/j.joule.2024.05.001" target="_blank" rel="noopener noreferrer"
+                            class="text-primary hover:underline">https://doi.org/10.1016/j.joule.2024.05.001</a>.
+                        Data:
+                        <a href="https://hrea.isr.umich.edu/data.html" target="_blank" rel="noopener noreferrer"
+                            class="text-primary hover:underline">hrea.isr.umich.edu/data.html</a>.
+                        Used in the Supply-Demand Matching demand layers.
                     </p>
                     <p>
                         <strong class="text-gray-300">Cost of Capital (WACC):</strong> Country-level WACC from
