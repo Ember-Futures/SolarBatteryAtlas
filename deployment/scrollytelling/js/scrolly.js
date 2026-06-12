@@ -6,6 +6,7 @@
 import { getVisualState, hasAnimation, getAnimation, interpolate } from './visual-states.js';
 import { loadSummary, loadPopulationCsv, loadGemPlantsCsv, loadVoronoiGemCapacityCsv, loadElectricityDemandData, loadReliabilityCsv, loadSample, loadSampleColumnar, loadWeeklyFrameCache, loadPvoutPotentialCsv, loadVoronoiWaccCsv, loadVoronoiLocalCapexCsv, loadVoronoiGasCsv, loadVoronoiOverlappingCountriesCsv } from './data.js';
 import { initMap, updateMap, updatePopulationSimple, updateLcoeMap, updateLcoePlantOverlay, updatePotentialMap, setAccessMetric, updateMapWithSampleFrame, clearAllMapLayers, map, initSampleFrameMap, updateSampleFrameColors, isSampleFrameInitialized, resetSampleFrameState, renderDualGlobes, hideDualGlobes, setCellCountries } from './map.js';
+import { setDayNightEnabled } from './daynight.js';
 import { capitalRecoveryFactor as crf, levelizedGrowthMultiplier } from './utils.js';
 import { transitionController, initTransitions, TRANSITION_DURATION, interpolateColor } from './transitions.js';
 import { showPopulationCfChart, showFossilDisplacementChart, showWeeklySampleChart, showUptimeComparisonChart, showCumulativeCapacityChart, showNoAccessLcoeChart, showGlobalPopulationLcoeChart, showBackupCostChart, showLatitudeDemandSupplyChart, hideChart } from './scrolly-charts.js';
@@ -1296,6 +1297,12 @@ function onSectionEnter(sectionId) {
     if (sectionId !== 'battery-shadow') {
         stopWeeklyAnimation();
     }
+
+    // The day/night overlay belongs to Step 3 only. Disabling (not just hiding) it
+    // makes every later update a no-op — including the moveend replay fired by this
+    // transition's view animation (map.js re-runs updateMapWithSampleFrame while
+    // currentMode is still 'samples'), which would otherwise resurrect the overlay.
+    setDayNightEnabled(sectionId === 'battery-shadow');
 
     updateSectionDots(sectionId);
     updateActiveSectionClass(sectionId);
