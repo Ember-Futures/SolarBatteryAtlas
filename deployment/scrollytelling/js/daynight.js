@@ -39,19 +39,19 @@ let lightsFrameCtx = null;
 let opts = {
     lightsUrl: null,
     zIndex: 450,
-    maxShadeAlpha: 0.4,   // night darkening — kept moderate so Voronoi data stays readable
-    twilightDegrees: 20,
-    lightsGain: 2.5,
-    lightsFloor: 60,   // subtract the Black Marble's dim background so only true city
+    maxShadeAlpha: 0.5,   // night darkening — kept moderate so Voronoi data stays readable
+    twilightDegrees: 18,
+    lightsGain: 1,
+    lightsFloor: 0,   // subtract the Black Marble's dim background so only true city
                        // lights glow (keeps night-side data cells readable)
-    lightsGamma: 1,   // tone-curve softness for the lights. 1 = linear (hard, can blow
+    lightsGamma: 2.5,   // tone-curve softness for the lights. 1 = linear (hard, can blow
                        // out to flat white). >1 (try 1.8–2.5) = soft rolloff: reveals the
                        // gradient from bright core → dim edge so lights aren't all-or-nothing.
                        // <1 = harsher/punchier. Colour-preserving, never hard-clips.
     lightsColorCut: 1,  // remove non-light bright areas (snow, desert, ocean) by colour.
                        // In this image real city lights are neutral/warm (R≥B) while ALL
                        // terrain is blue (B>R). 0 = off; 1 = fully cut bluish pixels.
-    resolutionDivisor: 4,
+    resolutionDivisor: 50,
     smoothSweep: true,
 };
 
