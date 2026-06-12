@@ -395,8 +395,15 @@ function renderFrame(season, frameIndex) {
 
     const timestamp = timestamps[frameIndex];
 
-    // Update UI
-    const date = new Date(timestamp);
+    // Update UI. Data stores UTC wall-clock strings without a zone marker; force
+    // UTC so the label isn't shifted by the viewer's timezone.
+    let tsForDate = timestamp;
+    if (typeof timestamp === 'string'
+        && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(timestamp)
+        && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+        tsForDate = timestamp.replace(' ', 'T') + 'Z';
+    }
+    const date = new Date(tsForDate);
     scrubberTime.textContent = date.toUTCString().replace('GMT', 'UTC');
     scrubberProgress.textContent = `Hour ${frameIndex + 1} / ${timestamps.length}`;
 

@@ -416,8 +416,17 @@ function renderFrame(season, frameIndex) {
 
     const timestamp = timestamps[frameIndex];
 
-    // Update UI
-    const date = new Date(timestamp);
+    // Update UI. The data stores UTC wall-clock strings without a zone marker
+    // ("2024-04-02 23:00:00"); new Date() would read that as LOCAL time and
+    // mislabel the hour by the viewer's timezone (and disagree with the
+    // day/night shading). Force UTC.
+    let tsForDate = timestamp;
+    if (typeof timestamp === 'string'
+        && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(timestamp)
+        && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+        tsForDate = timestamp.replace(' ', 'T') + 'Z';
+    }
+    const date = new Date(tsForDate);
     scrubberTime.textContent = date.toUTCString().replace('GMT', 'UTC');
     scrubberProgress.textContent = `Hour ${frameIndex + 1} / ${numFrames}`;
 

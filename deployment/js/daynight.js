@@ -100,7 +100,15 @@ function normalizeTs(ts) {
     if (typeof ts === 'bigint') return Number(ts);
     if (ts instanceof Date) return ts.getTime();
     if (typeof ts === 'number') return ts;
-    const parsed = Date.parse(ts);
+    // The dataset stores UTC wall-clock strings WITHOUT a zone designator
+    // ("2024-04-02 09:00:00"). new Date()/Date.parse() would read those as LOCAL
+    // time, shifting the terminator by the viewer's timezone offset (e.g. 4h/60°).
+    // Force UTC by normalising the separator and appending 'Z' when no zone given.
+    let s = String(ts).trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
+        s = s.replace(' ', 'T') + 'Z';
+    }
+    const parsed = Date.parse(s);
     return Number.isNaN(parsed) ? targetMs : parsed;
 }
 
