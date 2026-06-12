@@ -40,10 +40,14 @@ let opts = {
     lightsUrl: null,
     zIndex: 450,
     maxShadeAlpha: 0.4,   // night darkening — kept moderate so Voronoi data stays readable
-    twilightDegrees: 12,
-    lightsGain: 1.5,
-    lightsFloor: 26,   // subtract the Black Marble's dim background so only true city
+    twilightDegrees: 20,
+    lightsGain: 2,
+    lightsFloor: 2,   // subtract the Black Marble's dim background so only true city
                        // lights glow (keeps night-side data cells readable)
+    lightsGamma: 2,   // tone-curve softness for the lights. 1 = linear (hard, can blow
+                       // out to flat white). >1 (try 1.8–2.5) = soft rolloff: reveals the
+                       // gradient from bright core → dim edge so lights aren't all-or-nothing.
+                       // <1 = harsher/punchier. Colour-preserving, never hard-clips.
     resolutionDivisor: 4,
     smoothSweep: true,
 };
@@ -312,6 +316,7 @@ function buildLightsHi(size) {
 
     const gain = opts.lightsGain;
     const floor = opts.lightsFloor;
+    const invGamma = 1 / (opts.lightsGamma || 1);
     const hi = lightsHiCtx.createImageData(W, H);
     const out = hi.data;
     for (let y = 0; y < H; y++) {
@@ -325,17 +330,27 @@ function buildLightsHi(size) {
             let r = (data[si] - floor) * gain;
             let g = (data[si + 1] - floor) * gain;
             let b = (data[si + 2] - floor) * gain;
-            r = r < 0 ? 0 : (r > 255 ? 255 : r);
-            g = g < 0 ? 0 : (g > 255 ? 255 : g);
-            b = b < 0 ? 0 : (b > 255 ? 255 : b);
-            out[di] = r;
-            out[di + 1] = g;
-            out[di + 2] = b;
-            // Alpha = light brightness, so UNLIT night areas contribute nothing when
-            // the lights are composited additively (otherwise they'd add opacity
-            // everywhere on the night side and black out the Voronoi data).
-            const bright = r > g ? (r > b ? r : b) : (g > b ? g : b);
-            out[di + 3] = bright;
+            if (r < 0) r = 0;
+            if (g < 0) g = 0;
+            if (b < 0) b = 0;
+            // Tone curve on the pixel's brightness (peak channel), scaling all three
+            // channels by the same factor so the light's colour is preserved and it
+            // never hard-clips to flat white. gamma>1 → gentle highlight rolloff.
+            let peak = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            if (peak > 0) {
+                const n = peak > 255 ? 1 : peak / 255;
+                const tonedPeak = 255 * Math.pow(n, invGamma);
+                const f = tonedPeak / peak;
+                out[di] = r * f;
+                out[di + 1] = g * f;
+                out[di + 2] = b * f;
+                // Alpha = light brightness, so UNLIT night areas contribute nothing
+                // under additive compositing (else they'd add opacity across the whole
+                // night side and black out the Voronoi data).
+                out[di + 3] = tonedPeak;
+            } else {
+                out[di] = 0; out[di + 1] = 0; out[di + 2] = 0; out[di + 3] = 0;
+            }
         }
     }
     lightsHiCtx.putImageData(hi, 0, 0);
