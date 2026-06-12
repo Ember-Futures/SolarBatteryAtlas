@@ -12,6 +12,7 @@ import {
     FEATURE_VORONOI_GEOM_CACHE
 } from './constants.js';
 import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
+import { initDayNight, updateDayNight, hideDayNight } from './daynight.js';
 
 // Map a value to a bucket color (shared by the "× Demand" and "per capita"
 // potential display modes, which both use discrete colour buckets).
@@ -588,6 +589,7 @@ function clearVoronoiForSameMode() {
 }
 
 function resetLayersForMode(mode, { preserveVoronoi = false } = {}) {
+    if (mode !== 'samples') hideDayNight();
     const modeChanged = activeLayerMode !== mode;
     if (modeChanged) {
         if (markersLayer) markersLayer.clearLayers();
@@ -637,6 +639,8 @@ export async function initMap(onLocationSelect) {
     markersLayer = L.layerGroup().addTo(map);
     overlayLayer = L.layerGroup().addTo(map);
     voronoiLayer = L.svg().addTo(map);
+
+    initDayNight(map, { lightsUrl: 'data/BlackMarble_2016_01deg.jpg' });
 
     // Re-render Voronoi on move — RAF-coalesced, and skip redraws when the
     // viewport hasn't actually changed (tile-loaded moveend, programmatic
@@ -2646,6 +2650,9 @@ export function updateMapWithSampleFrame(frameData) {
             lastSampleVoronoiKey = voronoiKey;
         }
     }
+
+    // Day/night terminator + city lights overlay (samples mode only).
+    updateDayNight(frameData.timestamp);
 }
 
 function renderSampleVoronoi(mapPoints, locations) {

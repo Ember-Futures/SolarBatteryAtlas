@@ -1,5 +1,6 @@
 
 import { updateMapWithSampleFrame, setSampleLocationClickHandler } from './map.js';
+import { setDayNightEnabled } from './daynight.js';
 
 let sampleWeekData = null;
 let currentFrameIndex = 0;
@@ -126,6 +127,9 @@ export function initSampleDays() {
     weekSelect.addEventListener('change', () => handleWeekChange({ preserveFrame: false }));
     sampleChartClose?.addEventListener('click', hideSampleChart);
     setSampleLocationClickHandler(handleSampleLocationSelect);
+    document.getElementById('daynight-toggle')?.addEventListener('change', (e) => {
+        setDayNightEnabled(e.target.checked);
+    });
 }
 
 export async function loadSampleWeekData(solarGw, battGwh, summaryData) {

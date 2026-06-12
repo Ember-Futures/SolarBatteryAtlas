@@ -3563,7 +3563,7 @@ function startWeeklyAnimation() {
         // Compute initial colors and initialize all markers
         const initialLocations = computeWeeklyFrameColors(0);
         initSampleFrameMap({
-            timestamp: new Date().toISOString(),
+            timestamp: getWeeklyFrameTimestamp(0),
             locations: initialLocations
         });
     }
@@ -3590,6 +3590,17 @@ function stopWeeklyAnimation() {
     isAnimatingWeekly = false;
     // Reset sample frame state when stopping animation (e.g., leaving Step 3)
     resetSampleFrameState();
+}
+
+/**
+ * Real UTC timestamp for a weekly frame (drives the day/night overlay).
+ * Reads the shared sample data's timestamps (Arrow Vector or plain array).
+ */
+function getWeeklyFrameTimestamp(frameIndex) {
+    const ts = weeklySampleData?.[0]?.timestamps;
+    if (!ts) return undefined;
+    const v = ts.get ? ts.get(frameIndex) : ts[frameIndex];
+    return typeof v === 'bigint' ? Number(v) : v;
 }
 
 /**
@@ -3665,7 +3676,7 @@ function renderWeeklyFrameFast() {
     const locations = computeWeeklyFrameColors(currentWeekFrame);
 
     // Use optimized color-only update
-    updateSampleFrameColors(locations);
+    updateSampleFrameColors(locations, getWeeklyFrameTimestamp(currentWeekFrame));
 }
 
 /**
@@ -3678,7 +3689,7 @@ function renderWeeklyFrame() {
     const locations = computeWeeklyFrameColors(currentWeekFrame);
 
     updateMapWithSampleFrame({
-        timestamp: new Date().toISOString(),
+        timestamp: getWeeklyFrameTimestamp(currentWeekFrame),
         locations: locations
     });
 }

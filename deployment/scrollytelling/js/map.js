@@ -13,6 +13,7 @@ import {
     FEATURE_VORONOI_GEOM_CACHE
 } from './constants.js';
 import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
+import { initDayNight, updateDayNight, hideDayNight } from './daynight.js';
 
 // Per-cell country overlap list (location_id -> ordered string[]), populated from
 // scrolly.js once the overlapping-countries CSV loads. Lets every map tooltip show
@@ -242,6 +243,8 @@ export async function initMap(onLocationSelect) {
     markersLayer = L.layerGroup().addTo(map);
     overlayLayer = L.layerGroup().addTo(map);
     voronoiLayer = L.svg().addTo(map);
+
+    initDayNight(map, { lightsUrl: '../data/BlackMarble_2016_01deg.jpg' });
 
     // Re-render Voronoi on move
     map.on('moveend', () => {
@@ -2074,6 +2077,7 @@ function getDominanceColor(source) {
 }
 
 export function clearAllMapLayers() {
+    hideDayNight();
     if (markersLayer) markersLayer.clearLayers();
     if (overlayLayer) overlayLayer.clearLayers();
     if (sampleInfoById) sampleInfoById.clear();
@@ -2138,6 +2142,8 @@ export function updateMapWithSampleFrame(frameData) {
 
         renderSampleVoronoi(mapPoints, locations);
     }
+
+    updateDayNight(frameData?.timestamp);
 }
 
 let lastVoronoi = null;
@@ -2321,6 +2327,7 @@ export function initSampleFrameMap(frameData) {
     }
 
     sampleFrameInitialized = true;
+    updateDayNight(frameData.timestamp);
     console.log(`Initialized ${locations.length} sample markers`);
 }
 
@@ -2329,7 +2336,7 @@ export function initSampleFrameMap(frameData) {
  * ONLY updates colors of existing markers and Voronoi cells - no DOM recreation.
  * @param {Array} locations - Array of location objects with location_id and color
  */
-export function updateSampleFrameColors(locations) {
+export function updateSampleFrameColors(locations, timestamp) {
     if (!locations || locations.length === 0) return;
 
     locations.forEach(loc => {
@@ -2366,6 +2373,8 @@ export function updateSampleFrameColors(locations) {
 
     // Store for moveend handler
     lastSampleFrame = { locations };
+
+    if (timestamp != null) updateDayNight(timestamp);
 }
 
 /**
@@ -2379,6 +2388,7 @@ export function isSampleFrameInitialized() {
  * Reset sample frame state (call when leaving Step 3)
  */
 export function resetSampleFrameState() {
+    hideDayNight();
     sampleFrameInitialized = false;
     sampleInfoById.clear();
 }
