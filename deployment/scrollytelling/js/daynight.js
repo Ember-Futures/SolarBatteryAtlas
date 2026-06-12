@@ -52,6 +52,9 @@ let opts = {
                        // In this image real city lights are neutral/warm (R≥B) while ALL
                        // terrain is blue (B>R). 0 = off; 1 = fully cut bluish pixels.
     resolutionDivisor: 50,
+    panBuffer: 0.25,   // draw the canvas this fraction larger than the viewport on each
+                       // side so it doesn't expose an edge gap while the map is dragged.
+                       // Costs nothing during the drag itself (passive transform).
     smoothSweep: true,
 };
 
@@ -69,6 +72,13 @@ let gw = 0, gh = 0;
 let sinLat = null, cosLat = null;   // per grid row
 let sinLon = null, cosLon = null;   // per grid column (radians)
 
+// Pan buffer: the canvas is drawn LARGER than the viewport so that during a drag
+// (a passive CSS transform on the map pane — no redraw happens) the overlay slides
+// without exposing an uncovered strip at the edges, exactly like Leaflet's own SVG
+// renderer. padX/padY are the per-side buffer in CSS pixels; canvas pixel (px,py)
+// maps to container point (px - padX, py - padY).
+let padX = 0, padY = 0;
+
 // Black Marble source kept at full resolution for sharp lights.
 let lightsSrc = null;          // { data: Uint8ClampedArray, w, h }
 let lightsLoading = false;
@@ -79,6 +89,14 @@ let sweepRaf = null;
 let sweepFromMs = 0;
 let sweepToMs = 0;
 let sweepStart = 0;
+
+// True between movestart and moveend. While the map pane is being transformed
+// (drag/animated pan), painting is FORBIDDEN: a repaint would compute geography
+// from the in-flight view while the canvas element sits at its pre-move layer
+// position, desyncing content from position. Like Leaflet's own renderers (and
+// the Voronoi layer), we let the pane transform carry the existing pixels — the
+// pan buffer covers the exposed edges — and repaint once, on moveend.
+let moving = false;
 
 const DEG = Math.PI / 180;
 
@@ -107,8 +125,14 @@ export function initDayNight(mapInstance, options = {}) {
     lightsFrameCanvas = document.createElement('canvas');
     lightsFrameCtx = lightsFrameCanvas.getContext('2d');
 
+    map.on('movestart zoomstart', () => {
+        moving = true;
+        cancelSweep();
+    });
+
     let pending = false;
     const onViewChange = () => {
+        moving = false;
         if (pending) return;
         pending = true;
         requestAnimationFrame(() => {
@@ -116,7 +140,9 @@ export function initDayNight(mapInstance, options = {}) {
             if (!enabled || canvas.style.display === 'none') return;
             resize();
             viewKey = null; // force cache rebuild
-            render(lastDrawnMs ?? targetMs);
+            const ms = targetMs ?? lastDrawnMs;
+            render(ms);
+            lastDrawnMs = ms;
         });
     };
     map.on('moveend zoomend resize viewreset', onViewChange);
@@ -147,6 +173,11 @@ export function updateDayNight(ts) {
     targetMs = ms;
 
     ensureLights();
+
+    // Map pane is mid-move: defer painting to the moveend handler, which will
+    // draw targetMs against a settled view.
+    if (moving) return;
+
     showCanvas();
 
     if (lastDrawnMs == null) {
@@ -201,14 +232,20 @@ function showCanvas() {
 
 function resize() {
     const size = map.getSize();
-    if (canvas.width !== size.x || canvas.height !== size.y) {
-        canvas.width = size.x;
-        canvas.height = size.y;
-        canvas.style.width = size.x + 'px';
-        canvas.style.height = size.y + 'px';
+    const buf = opts.panBuffer > 0 ? opts.panBuffer : 0;
+    padX = Math.round(size.x * buf);
+    padY = Math.round(size.y * buf);
+    const fullW = size.x + 2 * padX;
+    const fullH = size.y + 2 * padY;
+    if (canvas.width !== fullW || canvas.height !== fullH) {
+        canvas.width = fullW;
+        canvas.height = fullH;
+        canvas.style.width = fullW + 'px';
+        canvas.style.height = fullH + 'px';
     }
-    // Pin canvas top-left to the container's top-left, so canvas pixels == container pixels.
-    const topLeft = map.containerPointToLayerPoint([0, 0]);
+    // Pin canvas top-left to container point (-padX,-padY) so the buffered canvas is
+    // centred on the viewport; canvas pixel (px,py) == container point (px-padX,py-padY).
+    const topLeft = map.containerPointToLayerPoint([-padX, -padY]);
     L.DomUtil.setPosition(canvas, topLeft);
 }
 
@@ -250,10 +287,10 @@ function ensureLights() {
 // ---- Per-view geometry + lights reprojection cache ------------------------
 
 function buildViewCache() {
-    const size = map.getSize();
+    const W = canvas.width, H = canvas.height;   // padded canvas dimensions
     const div = opts.resolutionDivisor;
-    gw = Math.max(2, Math.ceil(size.x / div));
-    gh = Math.max(2, Math.ceil(size.y / div));
+    gw = Math.max(2, Math.ceil(W / div));
+    gh = Math.max(2, Math.ceil(H / div));
 
     if (gridCanvas.width !== gw || gridCanvas.height !== gh) {
         gridCanvas.width = gw;
@@ -269,16 +306,17 @@ function buildViewCache() {
     sinLon = new Float64Array(gw);
     cosLon = new Float64Array(gw);
 
-    // Web Mercator: latitude depends on container-y only, longitude on container-x only.
+    // Canvas pixel (cx,cy) maps to container point (cx-padX, cy-padY). Web Mercator:
+    // latitude depends on container-y only, longitude on container-x only.
     for (let gy = 0; gy < gh; gy++) {
-        const cy = Math.min(gy * div, size.y - 1);
+        const cy = Math.min(gy * div, H - 1) - padY;
         const lat = map.containerPointToLatLng([0, cy]).lat;
         const latR = lat * DEG;
         sinLat[gy] = Math.sin(latR);
         cosLat[gy] = Math.cos(latR);
     }
     for (let gx = 0; gx < gw; gx++) {
-        const cx = Math.min(gx * div, size.x - 1);
+        const cx = Math.min(gx * div, W - 1) - padX;
         let lon = map.containerPointToLatLng([cx, 0]).lng;
         lon = ((lon + 180) % 360 + 360) % 360 - 180; // wrap to [-180,180)
         const lonR = lon * DEG;
@@ -286,7 +324,7 @@ function buildViewCache() {
         cosLon[gx] = Math.cos(lonR);
     }
 
-    buildLightsHi(size);
+    buildLightsHi();
 }
 
 // Reproject the Black Marble image (equirectangular) into the current mercator
@@ -294,24 +332,25 @@ function buildViewCache() {
 // keeps individual city lights crisp. Runs only on view changes (rare — the map
 // is essentially static during playback), so the ~1M-pixel pass is not on the
 // per-frame path.
-function buildLightsHi(size) {
+function buildLightsHi() {
     if (!lightsSrc) return;
-    const W = size.x, H = size.y;
+    const W = canvas.width, H = canvas.height;   // padded canvas dimensions
     if (lightsHiCanvas.width !== W || lightsHiCanvas.height !== H) {
         lightsHiCanvas.width = W; lightsHiCanvas.height = H;
         lightsFrameCanvas.width = W; lightsFrameCanvas.height = H;
     }
     const { data, w: sw, h: sh } = lightsSrc;
 
+    // Canvas pixel (x,y) maps to container point (x-padX, y-padY).
     const rowSrc = new Int32Array(H);
     for (let y = 0; y < H; y++) {
-        const lat = map.containerPointToLatLng([0, y]).lat;
+        const lat = map.containerPointToLatLng([0, y - padY]).lat;
         let r = Math.round((90 - lat) / 180 * (sh - 1));
         rowSrc[y] = r < 0 ? 0 : (r > sh - 1 ? sh - 1 : r);
     }
     const colSrc = new Int32Array(W);
     for (let x = 0; x < W; x++) {
-        let lon = map.containerPointToLatLng([x, 0]).lng;
+        let lon = map.containerPointToLatLng([x - padX, 0]).lng;
         lon = ((lon + 180) % 360 + 360) % 360 - 180;
         let c = Math.round((lon + 180) / 360 * (sw - 1));
         colSrc[x] = c < 0 ? 0 : (c > sw - 1 ? sw - 1 : c);
@@ -416,6 +455,7 @@ function subsolarPoint(ms) {
 
 function render(ms) {
     if (ms == null || !canvas || canvas.style.display === 'none') return;
+    if (moving) return; // never paint against an in-flight view (see `moving`)
 
     const key = currentViewKey();
     if (key !== viewKey) {
