@@ -1532,9 +1532,6 @@ export async function showLatitudeDemandSupplyChart(populationData, lcoeResults)
         .filter(s => Number.isFinite(s.p50))
         .map(s => ({ x: s.p50, y: s.lat }))
         .sort((a, b) => a.y - b.y);
-    const supplyXs = supplyLineData.map(p => p.x).concat(scatterData.map(p => p.x)).filter(Number.isFinite);
-    const supplyPeak = supplyXs.length ? Math.max(...supplyXs) : 0;
-    const supplySuggestedMax = supplyPeak > 0 ? supplyPeak * 1.05 : undefined;
 
     const datasets = [
         {
@@ -1596,7 +1593,7 @@ export async function showLatitudeDemandSupplyChart(populationData, lcoeResults)
                 title: { display: true, text: 'LCOE solar + battery ($/MWh)', color: '#38bdf8', font: { size: 11 } },
                 grid: { color: 'rgba(255,255,255,0.04)', drawOnChartArea: false },
                 ticks: { color: '#38bdf8', font: { size: 10 }, callback: (v) => `$${Number(v).toFixed(0)}` },
-                min: 0, suggestedMax: supplySuggestedMax
+                min: 0, max: 200
             },
             y: {
                 min: -90, max: 90,
