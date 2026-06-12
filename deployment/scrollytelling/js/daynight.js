@@ -18,16 +18,32 @@ let map = null;
 let pane = null;
 let canvas = null;
 let ctx = null;
-let gridCanvas = null;   // low-res offscreen canvas (grid resolution)
+
+// The shade (terminator darkening) is rendered on a low-res grid and smoothly
+// upscaled — that soft blur is exactly what a twilight band should look like.
+let gridCanvas = null;   // low-res shade (gw x gh)
 let gridCtx = null;
-let gridImage = null;    // reused ImageData for the grid
+let gridImage = null;    // reused ImageData for the shade grid
+let maskCanvas = null;   // low-res night-alpha mask (gw x gh), used to gate the lights
+let maskCtx = null;
+let maskImage = null;
+
+// City lights are rendered at FULL canvas resolution so they stay pin-sharp like
+// a real "Earth at night" satellite image, then gated by the (soft) night mask so
+// they only appear on the night side and fade across the terminator.
+let lightsHiCanvas = null;   // static reprojected lights for the current view (W x H)
+let lightsHiCtx = null;
+let lightsFrameCanvas = null; // per-frame working buffer (lights x mask)
+let lightsFrameCtx = null;
 
 let opts = {
     lightsUrl: null,
     zIndex: 450,
-    maxShadeAlpha: 0.55,
+    maxShadeAlpha: 0.4,   // night darkening — kept moderate so Voronoi data stays readable
     twilightDegrees: 12,
-    lightsGain: 1.0,
+    lightsGain: 1.5,
+    lightsFloor: 26,   // subtract the Black Marble's dim background so only true city
+                       // lights glow (keeps night-side data cells readable)
     resolutionDivisor: 4,
     smoothSweep: true,
 };
@@ -45,9 +61,8 @@ let viewKey = null;
 let gw = 0, gh = 0;
 let sinLat = null, cosLat = null;   // per grid row
 let sinLon = null, cosLon = null;   // per grid column (radians)
-let lightsR = null, lightsG = null, lightsB = null; // per grid cell, reprojected lights
 
-// Black Marble source, downscaled to 1800x900 once.
+// Black Marble source kept at full resolution for sharp lights.
 let lightsSrc = null;          // { data: Uint8ClampedArray, w, h }
 let lightsLoading = false;
 let lightsFailed = false;
@@ -78,6 +93,12 @@ export function initDayNight(mapInstance, options = {}) {
 
     gridCanvas = document.createElement('canvas');
     gridCtx = gridCanvas.getContext('2d');
+    maskCanvas = document.createElement('canvas');
+    maskCtx = maskCanvas.getContext('2d');
+    lightsHiCanvas = document.createElement('canvas');
+    lightsHiCtx = lightsHiCanvas.getContext('2d');
+    lightsFrameCanvas = document.createElement('canvas');
+    lightsFrameCtx = lightsFrameCanvas.getContext('2d');
 
     let pending = false;
     const onViewChange = () => {
@@ -193,7 +214,10 @@ function ensureLights() {
     img.crossOrigin = 'anonymous';
     img.onload = () => {
         try {
-            const sw = 1800, sh = 900;
+            // Keep the source at full native resolution (3600x1800) so individual
+            // city lights stay crisp when reprojected at screen resolution.
+            const sw = img.naturalWidth || 3600;
+            const sh = img.naturalHeight || 1800;
             const off = document.createElement('canvas');
             off.width = sw; off.height = sh;
             const octx = off.getContext('2d');
@@ -227,16 +251,16 @@ function buildViewCache() {
     if (gridCanvas.width !== gw || gridCanvas.height !== gh) {
         gridCanvas.width = gw;
         gridCanvas.height = gh;
+        maskCanvas.width = gw;
+        maskCanvas.height = gh;
     }
     gridImage = gridCtx.createImageData(gw, gh);
+    maskImage = maskCtx.createImageData(gw, gh);
 
     sinLat = new Float64Array(gh);
     cosLat = new Float64Array(gh);
     sinLon = new Float64Array(gw);
     cosLon = new Float64Array(gw);
-    lightsR = new Uint8ClampedArray(gw * gh);
-    lightsG = new Uint8ClampedArray(gw * gh);
-    lightsB = new Uint8ClampedArray(gw * gh);
 
     // Web Mercator: latitude depends on container-y only, longitude on container-x only.
     for (let gy = 0; gy < gh; gy++) {
@@ -246,46 +270,75 @@ function buildViewCache() {
         sinLat[gy] = Math.sin(latR);
         cosLat[gy] = Math.cos(latR);
     }
-    const lonRadByCol = new Float64Array(gw); // wrapped lon, radians (for lights too)
-    const lonDegByCol = new Float64Array(gw);
     for (let gx = 0; gx < gw; gx++) {
         const cx = Math.min(gx * div, size.x - 1);
         let lon = map.containerPointToLatLng([cx, 0]).lng;
         lon = ((lon + 180) % 360 + 360) % 360 - 180; // wrap to [-180,180)
-        lonDegByCol[gx] = lon;
         const lonR = lon * DEG;
-        lonRadByCol[gx] = lonR;
         sinLon[gx] = Math.sin(lonR);
         cosLon[gx] = Math.cos(lonR);
     }
 
-    // Reproject Black Marble (equirectangular) → grid (current mercator viewport).
-    if (lightsSrc) {
-        const { data, w: sw, h: sh } = lightsSrc;
-        const rowSrc = new Int32Array(gh);
-        for (let gy = 0; gy < gh; gy++) {
-            const cy = Math.min(gy * div, size.y - 1);
-            const lat = map.containerPointToLatLng([0, cy]).lat;
-            let r = Math.round((90 - lat) / 180 * (sh - 1));
-            rowSrc[gy] = r < 0 ? 0 : (r > sh - 1 ? sh - 1 : r);
-        }
-        const colSrc = new Int32Array(gw);
-        for (let gx = 0; gx < gw; gx++) {
-            let c = Math.round((lonDegByCol[gx] + 180) / 360 * (sw - 1));
-            colSrc[gx] = c < 0 ? 0 : (c > sw - 1 ? sw - 1 : c);
-        }
-        for (let gy = 0; gy < gh; gy++) {
-            const srcRowBase = rowSrc[gy] * sw;
-            const dstBase = gy * gw;
-            for (let gx = 0; gx < gw; gx++) {
-                const si = (srcRowBase + colSrc[gx]) * 4;
-                const di = dstBase + gx;
-                lightsR[di] = data[si];
-                lightsG[di] = data[si + 1];
-                lightsB[di] = data[si + 2];
-            }
+    buildLightsHi(size);
+}
+
+// Reproject the Black Marble image (equirectangular) into the current mercator
+// viewport at FULL canvas resolution, once per view. Per-pixel nearest-neighbour
+// keeps individual city lights crisp. Runs only on view changes (rare — the map
+// is essentially static during playback), so the ~1M-pixel pass is not on the
+// per-frame path.
+function buildLightsHi(size) {
+    if (!lightsSrc) return;
+    const W = size.x, H = size.y;
+    if (lightsHiCanvas.width !== W || lightsHiCanvas.height !== H) {
+        lightsHiCanvas.width = W; lightsHiCanvas.height = H;
+        lightsFrameCanvas.width = W; lightsFrameCanvas.height = H;
+    }
+    const { data, w: sw, h: sh } = lightsSrc;
+
+    const rowSrc = new Int32Array(H);
+    for (let y = 0; y < H; y++) {
+        const lat = map.containerPointToLatLng([0, y]).lat;
+        let r = Math.round((90 - lat) / 180 * (sh - 1));
+        rowSrc[y] = r < 0 ? 0 : (r > sh - 1 ? sh - 1 : r);
+    }
+    const colSrc = new Int32Array(W);
+    for (let x = 0; x < W; x++) {
+        let lon = map.containerPointToLatLng([x, 0]).lng;
+        lon = ((lon + 180) % 360 + 360) % 360 - 180;
+        let c = Math.round((lon + 180) / 360 * (sw - 1));
+        colSrc[x] = c < 0 ? 0 : (c > sw - 1 ? sw - 1 : c);
+    }
+
+    const gain = opts.lightsGain;
+    const floor = opts.lightsFloor;
+    const hi = lightsHiCtx.createImageData(W, H);
+    const out = hi.data;
+    for (let y = 0; y < H; y++) {
+        const srcRowBase = rowSrc[y] * sw;
+        const dstRow = y * W;
+        for (let x = 0; x < W; x++) {
+            const si = (srcRowBase + colSrc[x]) * 4;
+            const di = (dstRow + x) * 4;
+            // Subtract the dim "blue marble" background, then gain — isolates true
+            // city lights so they pop sharply without washing the night-side data.
+            let r = (data[si] - floor) * gain;
+            let g = (data[si + 1] - floor) * gain;
+            let b = (data[si + 2] - floor) * gain;
+            r = r < 0 ? 0 : (r > 255 ? 255 : r);
+            g = g < 0 ? 0 : (g > 255 ? 255 : g);
+            b = b < 0 ? 0 : (b > 255 ? 255 : b);
+            out[di] = r;
+            out[di + 1] = g;
+            out[di + 2] = b;
+            // Alpha = light brightness, so UNLIT night areas contribute nothing when
+            // the lights are composited additively (otherwise they'd add opacity
+            // everywhere on the night side and black out the Voronoi data).
+            const bright = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            out[di + 3] = bright;
         }
     }
+    lightsHiCtx.putImageData(hi, 0, 0);
 }
 
 function currentViewKey() {
@@ -347,16 +400,18 @@ function render(ms) {
 
     const sinTwi = Math.sin(opts.twilightDegrees * DEG); // ramp denominator
     const maxA = opts.maxShadeAlpha;
-    const gain = opts.lightsGain;
-    const haveLights = !!lightsSrc;
+    const haveLights = !!lightsSrc && lightsHiCanvas.width === canvas.width
+        && lightsHiCanvas.height === canvas.height;
 
-    const out = gridImage.data;
+    const shade = gridImage.data;   // low-res shade: dark blue, alpha = night*maxShade
+    const mask = maskImage.data;    // low-res gate: alpha = night (gates the lights)
 
     for (let gy = 0; gy < gh; gy++) {
         const A = sinLat[gy] * sinD;
         const Bc = cosLat[gy] * cosD;
         const rowBase = gy * gw;
         for (let gx = 0; gx < gw; gx++) {
+            const di = (rowBase + gx) * 4;
             // cos(lon - lonS) = cosLon*cosLonS + sinLon*sinLonS
             const cosH = cosLon[gx] * cosLonS + sinLon[gx] * sinLonS;
             const sinElev = A + Bc * cosH;
@@ -364,44 +419,45 @@ function render(ms) {
             // Night ramp in sin-space: 0 at horizon, 1 at -twilightDegrees.
             let t = -sinElev / sinTwi;
             if (t <= 0) {
-                // Full daylight — fully transparent.
-                const di = (rowBase + gx) * 4;
-                out[di + 3] = 0;
+                shade[di + 3] = 0;  // full daylight → transparent
+                mask[di + 3] = 0;   // no lights on the day side
                 continue;
             }
             if (t > 1) t = 1;
             const night = t * t * (3 - 2 * t); // smoothstep
 
-            const di = (rowBase + gx) * 4;
-            let r = 8, gch = 12, b = 25; // night shade base (cool dark blue)
-            if (haveLights) {
-                const li = rowBase + gx;
-                const lf = night * gain;
-                r += lightsR[li] * lf;
-                gch += lightsG[li] * lf;
-                b += lightsB[li] * lf;
-            }
-            out[di] = r > 255 ? 255 : r;
-            out[di + 1] = gch > 255 ? 255 : gch;
-            out[di + 2] = b > 255 ? 255 : b;
+            shade[di] = 8; shade[di + 1] = 12; shade[di + 2] = 25; // cool dark blue
+            shade[di + 3] = Math.round(night * maxA * 255);
 
-            // Shade alpha follows the night ramp; boost where lights are bright so
-            // cities read clearly through the semi-transparent shade.
-            let a = night * maxA;
-            if (haveLights) {
-                const li = rowBase + gx;
-                const bright = Math.max(lightsR[li], lightsG[li], lightsB[li]) / 255;
-                a += bright * night * (1 - maxA);
-                if (a > 1) a = 1;
-            }
-            out[di + 3] = Math.round(a * 255);
+            mask[di] = 255; mask[di + 1] = 255; mask[di + 2] = 255;
+            mask[di + 3] = Math.round(night * 255);
         }
     }
 
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    // Layer 1 — soft shade (low-res, smoothly upscaled → gives the soft twilight band).
     gridCtx.putImageData(gridImage, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(gridCanvas, 0, 0, gw, gh, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(gridCanvas, 0, 0, gw, gh, 0, 0, W, H);
+
+    // Layer 2 — crisp city lights (full-res), gated by the soft night mask, added
+    // as a glow on top of the shade.
+    if (haveLights) {
+        maskCtx.putImageData(maskImage, 0, 0); // push the night gate to its canvas
+        const lf = lightsFrameCtx;
+        lf.globalCompositeOperation = 'copy';
+        lf.drawImage(lightsHiCanvas, 0, 0);                 // sharp lights, full alpha
+        lf.globalCompositeOperation = 'destination-in';
+        lf.imageSmoothingEnabled = true;
+        lf.drawImage(maskCanvas, 0, 0, gw, gh, 0, 0, W, H); // alpha *= soft night mask
+        lf.globalCompositeOperation = 'source-over';
+
+        ctx.globalCompositeOperation = 'lighter';           // additive glow
+        ctx.drawImage(lightsFrameCanvas, 0, 0);
+        ctx.globalCompositeOperation = 'source-over';
+    }
 }
 
 // ---- Smooth sweep between hourly frames ------------------------------------
