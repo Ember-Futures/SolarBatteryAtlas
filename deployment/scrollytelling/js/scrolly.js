@@ -1179,6 +1179,12 @@ function updateLcoeOutlookMap() {
 }
 
 async function onLocationSelect(data, mode) {
+    // Clicking a location to open the "Weekly Energy Profile" is disabled in the
+    // scrollytelling version (guided narrative — no per-location drill-down). This
+    // is the single choke point: showWeeklySampleChart() is only reached from here.
+    // Remove this early return to re-enable the click-through.
+    return;
+
     console.log('Location selected:', data, mode);
     const sectionAtStart = currentSection;
 
