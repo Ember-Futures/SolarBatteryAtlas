@@ -41,13 +41,16 @@ let opts = {
     zIndex: 450,
     maxShadeAlpha: 0.4,   // night darkening — kept moderate so Voronoi data stays readable
     twilightDegrees: 20,
-    lightsGain: 2,
-    lightsFloor: 2,   // subtract the Black Marble's dim background so only true city
+    lightsGain: 2.5,
+    lightsFloor: 60,   // subtract the Black Marble's dim background so only true city
                        // lights glow (keeps night-side data cells readable)
-    lightsGamma: 2,   // tone-curve softness for the lights. 1 = linear (hard, can blow
+    lightsGamma: 1,   // tone-curve softness for the lights. 1 = linear (hard, can blow
                        // out to flat white). >1 (try 1.8–2.5) = soft rolloff: reveals the
                        // gradient from bright core → dim edge so lights aren't all-or-nothing.
                        // <1 = harsher/punchier. Colour-preserving, never hard-clips.
+    lightsColorCut: 1,  // remove non-light bright areas (snow, desert, ocean) by colour.
+                       // In this image real city lights are neutral/warm (R≥B) while ALL
+                       // terrain is blue (B>R). 0 = off; 1 = fully cut bluish pixels.
     resolutionDivisor: 4,
     smoothSweep: true,
 };
@@ -317,6 +320,7 @@ function buildLightsHi(size) {
     const gain = opts.lightsGain;
     const floor = opts.lightsFloor;
     const invGamma = 1 / (opts.lightsGamma || 1);
+    const colorCut = opts.lightsColorCut || 0;
     const hi = lightsHiCtx.createImageData(W, H);
     const out = hi.data;
     for (let y = 0; y < H; y++) {
@@ -325,11 +329,23 @@ function buildLightsHi(size) {
         for (let x = 0; x < W; x++) {
             const si = (srcRowBase + colSrc[x]) * 4;
             const di = (dstRow + x) * 4;
-            // Subtract the dim "blue marble" background, then gain — isolates true
-            // city lights so they pop sharply without washing the night-side data.
-            let r = (data[si] - floor) * gain;
-            let g = (data[si + 1] - floor) * gain;
-            let b = (data[si + 2] - floor) * gain;
+            const R0 = data[si], G0 = data[si + 1], B0 = data[si + 2];
+
+            // Colour gate: real city lights are neutral/warm (R≥B); ALL the terrain in
+            // this image (snow, desert, ocean, land) is blue (B>R). Suppress bluish
+            // pixels so snow/desert don't read as lights. neutrality: warm≥0 → keep,
+            // warm≤-8 → cut. lightsColorCut scales how strongly the gate is applied.
+            let colorGate = 1;
+            if (colorCut > 0) {
+                let neutrality = (R0 - B0 + 8) / 8;
+                if (neutrality < 0) neutrality = 0; else if (neutrality > 1) neutrality = 1;
+                colorGate = 1 - colorCut * (1 - neutrality);
+            }
+
+            // Subtract the dim background, then gain — isolates bright city lights.
+            let r = (R0 - floor) * gain;
+            let g = (G0 - floor) * gain;
+            let b = (B0 - floor) * gain;
             if (r < 0) r = 0;
             if (g < 0) g = 0;
             if (b < 0) b = 0;
@@ -337,9 +353,9 @@ function buildLightsHi(size) {
             // channels by the same factor so the light's colour is preserved and it
             // never hard-clips to flat white. gamma>1 → gentle highlight rolloff.
             let peak = r > g ? (r > b ? r : b) : (g > b ? g : b);
-            if (peak > 0) {
+            if (peak > 0 && colorGate > 0) {
                 const n = peak > 255 ? 1 : peak / 255;
-                const tonedPeak = 255 * Math.pow(n, invGamma);
+                const tonedPeak = 255 * Math.pow(n, invGamma) * colorGate;
                 const f = tonedPeak / peak;
                 out[di] = r * f;
                 out[di + 1] = g * f;
