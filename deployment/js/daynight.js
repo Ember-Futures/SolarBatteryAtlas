@@ -288,19 +288,34 @@ function currentViewKey() {
     return `${z}|${c.lat.toFixed(4)},${c.lng.toFixed(4)}|${s.x}x${s.y}|${haveLights}`;
 }
 
-// ---- Subsolar point (NOAA low-precision) ----------------------------------
+// ---- Sun position -----------------------------------------------------------
+//
+// IMPORTANT: the terminator is aligned to the SAMPLE DATA's clock, not true
+// astronomy. The hourly sample data indexes solar generation by local time =
+// UTC + longitude/15 (see samples.js renderFrame / scrolly.js
+// computeWeeklyFrameColors), with each hourly bin labelled at its start. Using a
+// true GMST + equation-of-time subsolar point drifts the shade ~1h (~15°) away
+// from the yellow solar cells. So:
+//   - declination comes from the real date (realistic seasonal day-length and
+//     polar day/night), but
+//   - the subsolar LONGITUDE comes from the data clock: solar noon at local
+//     time SOLAR_NOON_REF. Empirically 11.5 minimises day/night disagreement
+//     with the data to ~1% (vs ~4% at 12.0), because the hourly bins are
+//     start-labelled, putting the lit window's centre at ~11.5 local.
+const SOLAR_NOON_REF = 11.5; // local hour of modelled solar noon in the dataset
 
 function subsolarPoint(ms) {
-    // Days since J2000.0 (2000-01-01T12:00:00Z), including day fraction.
+    // Declination from real date (J2000-based NOAA low-precision series).
     const d = (ms - 946728000000) / 86400000;
     const g = (357.529 + 0.98560028 * d) * DEG;          // mean anomaly
     const q = 280.459 + 0.98564736 * d;                  // mean longitude (deg)
     const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * DEG; // ecliptic lon
     const e = (23.439 - 0.00000036 * d) * DEG;           // obliquity
     const decl = Math.asin(Math.sin(e) * Math.sin(L));   // subsolar latitude
-    const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)); // right ascension
-    let gmst = 280.46061837 + 360.98564736629 * d;       // deg
-    let lonDeg = (ra / DEG) - gmst;                      // subsolar longitude (deg)
+
+    // Subsolar longitude from the dataset clock: lonS = 15*(SOLAR_NOON_REF - UTChours).
+    const utcHours = (((ms % 86400000) + 86400000) % 86400000) / 3600000;
+    let lonDeg = 15 * (SOLAR_NOON_REF - utcHours);
     lonDeg = ((lonDeg + 180) % 360 + 360) % 360 - 180;
     return { decl, lon: lonDeg * DEG };
 }
