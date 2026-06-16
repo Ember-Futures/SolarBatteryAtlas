@@ -35,6 +35,8 @@ let lightsHiCanvas = null;   // static reprojected lights for the current view (
 let lightsHiCtx = null;
 let lightsFrameCanvas = null; // per-frame working buffer (lights x mask)
 let lightsFrameCtx = null;
+let glowCanvas = null;       // scratch for baking the bloom halo (W x H, view-rebuilt)
+let glowCtx = null;
 
 let opts = {
     lightsUrl: null,
@@ -51,6 +53,11 @@ let opts = {
     lightsColorCut: 1,  // remove non-light bright areas (snow, desert, ocean) by colour.
                        // In this image real city lights are neutral/warm (R≥B) while ALL
                        // terrain is blue (B>R). 0 = off; 1 = fully cut bluish pixels.
+    lightsGlow: 7,            // bloom blur radius (canvas px) baked around each light so
+                              // cities read as a soft glow, not hard dots. 0 = old sharp look.
+    lightsGlowStrength: 0.6,  // additive opacity of the halo (0–1).
+    lightsGlowWarmth: 0.5,    // how strongly to bias the halo toward amber (0–1).
+    lightsGlowColor: 'rgb(255,176,92)', // warm amber the halo is blended toward.
     resolutionDivisor: 50,
     panBuffer: 0.25,   // draw the canvas this fraction larger than the viewport on each
                        // side so it doesn't expose an edge gap while the map is dragged.
@@ -124,6 +131,8 @@ export function initDayNight(mapInstance, options = {}) {
     lightsHiCtx = lightsHiCanvas.getContext('2d');
     lightsFrameCanvas = document.createElement('canvas');
     lightsFrameCtx = lightsFrameCanvas.getContext('2d');
+    glowCanvas = document.createElement('canvas');
+    glowCtx = glowCanvas.getContext('2d');
 
     map.on('movestart zoomstart', () => {
         moving = true;
@@ -338,6 +347,7 @@ function buildLightsHi() {
     if (lightsHiCanvas.width !== W || lightsHiCanvas.height !== H) {
         lightsHiCanvas.width = W; lightsHiCanvas.height = H;
         lightsFrameCanvas.width = W; lightsFrameCanvas.height = H;
+        glowCanvas.width = W; glowCanvas.height = H;
     }
     const { data, w: sw, h: sh } = lightsSrc;
 
@@ -409,6 +419,33 @@ function buildLightsHi() {
         }
     }
     lightsHiCtx.putImageData(hi, 0, 0);
+
+    // Bloom: add a soft (slightly warm) halo around each light so cities read as a
+    // glow rather than hard dots. Baked once per view — the per-frame path is untouched.
+    const glowPx = opts.lightsGlow;
+    if (glowPx > 0 && opts.lightsGlowStrength > 0) {
+        const g = glowCtx;
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.globalCompositeOperation = 'source-over';
+        g.globalAlpha = 1;
+        g.clearRect(0, 0, W, H);
+        g.filter = `blur(${glowPx}px)`;
+        g.drawImage(lightsHiCanvas, 0, 0);          // blurred copy of the sharp lights
+        g.filter = 'none';
+        if (opts.lightsGlowWarmth > 0) {            // warm only where the halo has alpha
+            g.globalCompositeOperation = 'source-atop';
+            g.globalAlpha = opts.lightsGlowWarmth;
+            g.fillStyle = opts.lightsGlowColor;
+            g.fillRect(0, 0, W, H);
+            g.globalAlpha = 1;
+            g.globalCompositeOperation = 'source-over';
+        }
+        lightsHiCtx.save();
+        lightsHiCtx.globalCompositeOperation = 'lighter'; // add halo onto the sharp cores
+        lightsHiCtx.globalAlpha = opts.lightsGlowStrength;
+        lightsHiCtx.drawImage(glowCanvas, 0, 0);
+        lightsHiCtx.restore();
+    }
 }
 
 function currentViewKey() {
