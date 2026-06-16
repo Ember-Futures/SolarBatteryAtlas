@@ -83,6 +83,7 @@ const lcoeWorkerInFlight = new Set();
 const lcoeWorkerRerenderCtx = new Map(); // cacheKey -> { sectionId, renderVersion } to repaint on arrival
 let scrollSections = [];
 let scrollOpacityRaf = null;
+let targetCfRafId = null; // rAF id for the coalesced target-CF/uptime slider refresh
 let scrollRafRequestedTs = 0;
 let lastOverlayOpacity = null;
 let lastScrollMetrics = null;
@@ -1282,6 +1283,8 @@ function onSectionEnter(sectionId) {
     currentSection = sectionId;
     sectionRenderVersion += 1;
     const renderVersion = sectionRenderVersion;
+    // Drop any pending coalesced target-CF slider refresh from the previous section.
+    if (targetCfRafId != null) { cancelAnimationFrame(targetCfRafId); targetCfRafId = null; }
 
     // Hold the overlay black until this section's map is actually drawn (released
     // in markIncomingReady once renderVisualState / the animation paints a frame).
@@ -1475,7 +1478,7 @@ function setupInteractions() {
         });
     }
 
-    async function refreshTargetCfSection(val) {
+    async function refreshTargetCfSection(val, { dragging = false } = {}) {
         if (currentSection === 'planned-capacity') {
             const targetCf = val / 100.0;
             const lcoeResults = computeLcoeForAllLocations(targetCf);
@@ -1510,7 +1513,7 @@ function setupInteractions() {
             lastLcoeResults = lcoeResults;
             lastLcoeColorInfo = colorInfo;
             updateLcoeMap(lcoeResults, { colorInfo });
-            await showGlobalPopulationLcoeChart(populationData, lcoeResults);
+            await showGlobalPopulationLcoeChart(populationData, lcoeResults, dragging ? { animationDuration: 0 } : {});
             if (cheapPopulousView === 'chart') {
                 await showLatitudeDemandSupplyChart(populationData, lcoeResults);
             }
@@ -1522,12 +1525,45 @@ function setupInteractions() {
         }
     }
 
+    // Coalesce slider input to <=1 refresh per animation frame, serialized so the
+    // async refreshTargetCfSection calls never overlap (overlapping calls would race
+    // the map recolor + chart rebuild). The latest value always renders (trailing
+    // edge), and during a drag the global-population chart animates instantly so the
+    // coalesced frames don't show interrupted 600ms bar tweens.
+    let cfLatestVal = null;
+    let cfRefreshRunning = false;
+    const runTargetCfRefresh = async () => {
+        targetCfRafId = null;
+        if (cfRefreshRunning) { targetCfRafId = requestAnimationFrame(runTargetCfRefresh); return; }
+        cfRefreshRunning = true;
+        const val = cfLatestVal;
+        try {
+            await refreshTargetCfSection(val, { dragging: true });
+        } finally {
+            cfRefreshRunning = false;
+        }
+        // A newer value arrived mid-run → render it (trailing edge).
+        if (cfLatestVal !== val && targetCfRafId == null) {
+            targetCfRafId = requestAnimationFrame(runTargetCfRefresh);
+        }
+    };
+    const scheduleTargetCfRefresh = (val) => {
+        cfLatestVal = val;
+        if (targetCfRafId == null && !cfRefreshRunning) {
+            targetCfRafId = requestAnimationFrame(runTargetCfRefresh);
+        }
+    };
+
     if (targetCfSlider) {
-        targetCfSlider.addEventListener('input', async (e) => {
+        const onTargetCfSlide = (e) => {
             const val = parseInt(e.target.value, 10);
-            if (targetCfDisplay) targetCfDisplay.textContent = val;
-            await refreshTargetCfSection(val);
-        });
+            if (targetCfDisplay) targetCfDisplay.textContent = val; // keep the % readout live
+            scheduleTargetCfRefresh(val);
+        };
+        targetCfSlider.addEventListener('input', onTargetCfSlide);
+        // Trailing edge: 'change' (pointer-up / keyboard commit) guarantees the final
+        // committed value renders even if its 'input' frame was coalesced away.
+        targetCfSlider.addEventListener('change', onTargetCfSlide);
     }
 
     if (outlookSlider) {

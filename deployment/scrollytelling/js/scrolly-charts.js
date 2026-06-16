@@ -53,10 +53,21 @@ function queueChartResize(containerId) {
 }
 
 // ========== INITIALIZATION ==========
+// Cap Chart.js backing-store resolution at 2x: pixel-identical on dpr<=2
+// screens, far cheaper to paint on 3x panels, beyond visual acuity at these
+// chart sizes. Idempotent; applied on every ensureChartJsLoaded() return path
+// (the function early-returns past onload once Chart is cached).
+function applyChartDpiCap() {
+    if (window.Chart) {
+        window.Chart.defaults.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    }
+}
+
 async function ensureChartJsLoaded() {
-    if (ChartJS) return ChartJS;
+    if (ChartJS) { applyChartDpiCap(); return ChartJS; }
     if (window.Chart) {
         ChartJS = window.Chart;
+        applyChartDpiCap();
         return ChartJS;
     }
 
@@ -67,6 +78,7 @@ async function ensureChartJsLoaded() {
             ChartJS = window.Chart;
             Chart.defaults.color = CHART_COLORS.textMuted;
             Chart.defaults.borderColor = CHART_COLORS.grid;
+            applyChartDpiCap();
             resolve(ChartJS);
         };
         script.onerror = reject;
@@ -1131,7 +1143,7 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
     document.querySelector('.scrolly-visual')?.classList.add('with-chart');
 }
 
-export async function showGlobalPopulationLcoeChart(populationData, lcoeResults, { maxLcoe = 200, bins = 20 } = {}) {
+export async function showGlobalPopulationLcoeChart(populationData, lcoeResults, { maxLcoe = 200, bins = 20, animationDuration } = {}) {
     const container = document.getElementById('chart-container');
     if (!container) return;
 
@@ -1246,6 +1258,9 @@ export async function showGlobalPopulationLcoeChart(populationData, lcoeResults,
 
     await renderChart('chart-layout-single', 'bar', chartData, {
         yAxisLabel: '',
+        // 0 during an active slider drag (snappy, no interrupted tweens);
+        // undefined on section entry => renderChart's default 600ms entrance.
+        animationDuration,
         plugins: { legend: { display: false } },
         onHover: (event, elements) => {
             if (!window.updateMapWithHighlightLcoe) return;

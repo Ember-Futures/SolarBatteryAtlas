@@ -86,6 +86,12 @@ let capacityPopup = null;
 
 let samplePopup = null;
 let lastSampleVoronoiKey = null;
+// True while the sample week is auto-playing (500ms/frame). During playback the
+// per-cell `fill 0.9s` cross-fade is suppressed (see .sample-voronoi.playing in
+// style.css) so the recolor paints once per frame instead of restarting an
+// unfinishable 0.9s tween on thousands of SVG cells every 500ms — a Chrome SVG
+// paint storm. The cross-fade is kept for scrubber drags and config changes.
+let samplePlaybackActive = false;
 
 let currentAccessMetric = 'reliability'; // 'reliability', 'no_access', or 'no_access_pop'
 
@@ -2703,6 +2709,10 @@ function renderSampleVoronoi(mapPoints, locations) {
 
     const g = svg.append("g")
         .attr("class", "sample-voronoi")
+        // Re-apply the playback flag on every full rebuild (the <g> is recreated
+        // here, incl. on moveend during playback), so the no-transition rule
+        // survives geometry rebuilds rather than being a one-time add.
+        .classed("playing", samplePlaybackActive)
         .attr("clip-path", worldGeoJSON ? "url(#clip-land)" : null);
 
     const delaunay = d3.Delaunay.from(mapPoints);
@@ -2769,10 +2779,25 @@ function updateSampleVoronoiColors(locations) {
     const svg = d3.select(voronoiLayer._container);
     const group = svg.select(".sample-voronoi");
     if (group.empty()) return false;
+    // Keep the no-transition state in sync with playback on every frame (this is
+    // the fast colour-only path taken during auto-play, so it's the reliable
+    // place to ensure .playing is present while the timer is running).
+    group.classed("playing", samplePlaybackActive);
     group.selectAll("path")
         .data(locations, d => d.location_id)
         .attr("fill", d => d.color);
     return true;
+}
+
+// Toggle the sample-week auto-play state. While active, the .playing class on the
+// voronoi <g> suppresses the per-cell fill cross-fade (style.css) so each 500ms
+// recolor is a single paint. Also updates the currently-mounted <g> live, so the
+// effect applies immediately without waiting for the next full rebuild.
+export function setSamplePlaybackActive(active) {
+    samplePlaybackActive = !!active;
+    if (!voronoiLayer || !voronoiLayer._container) return;
+    const group = d3.select(voronoiLayer._container).select(".sample-voronoi");
+    if (!group.empty()) group.classed("playing", samplePlaybackActive);
 }
 
 export function setSampleLocationClickHandler(handler) {

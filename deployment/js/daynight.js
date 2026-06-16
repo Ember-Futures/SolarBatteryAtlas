@@ -539,6 +539,12 @@ function startSweep(fromMs, toMs) {
     sweepToMs = toMs;
     sweepStart = performance.now();
     const DURATION = 450;
+    // Cap intermediate sweep renders to ~30fps. Each render() fully clears and
+    // recomposites a ~2.25x-viewport canvas; at 60fps that doubles the per-frame
+    // compositing bill for sub-pixel terminator motion. The terminal frame below
+    // is never throttled, so the sweep still lands exactly on toMs.
+    const FRAME_MS = 32;
+    let sweepLastFrame = sweepStart;
     const step = (now) => {
         let p = (now - sweepStart) / DURATION;
         if (p >= 1 || document.hidden) {
@@ -547,6 +553,13 @@ function startSweep(fromMs, toMs) {
             sweepRaf = null;
             return;
         }
+        // Throttled (skipped) frame: re-arm the rAF without rendering, so the
+        // animation keeps advancing and cancelSweep() can still cancel cleanly.
+        if (now - sweepLastFrame < FRAME_MS) {
+            sweepRaf = requestAnimationFrame(step);
+            return;
+        }
+        sweepLastFrame = now;
         const eased = p; // linear sweep of the sun position reads naturally
         const ms = sweepFromMs + (sweepToMs - sweepFromMs) * eased;
         render(ms);

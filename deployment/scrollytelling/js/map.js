@@ -1345,10 +1345,11 @@ function renderVoronoiDual(mapPoints, data, baseFill, overlayFill, options = {})
         const idSet = new Set(locationIds.map(id => Number(id)));
         cells.each(function (d) {
             const isHighlighted = idSet.has(Number(d.location_id));
-            d3.select(this)
-                .attr("fill-opacity", isHighlighted ? 1 : 0.05)
-                .attr("stroke", isHighlighted ? "white" : "none")
-                .attr("stroke-width", isHighlighted ? 1 : 0);
+            // Native setAttribute (identical string values) avoids a d3.select
+            // wrapper allocation per cell on every hover tick.
+            this.setAttribute("fill-opacity", isHighlighted ? 1 : 0.05);
+            this.setAttribute("stroke", isHighlighted ? "white" : "none");
+            this.setAttribute("stroke-width", isHighlighted ? 1 : 0);
         });
     };
 }
@@ -2056,10 +2057,11 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
         cells.each(function (d) {
             const row = d?.row || d;
             const isHighlighted = idSet.has(Number(row?.location_id));
-            d3.select(this)
-                .attr("fill-opacity", isHighlighted ? 0.9 : 0.05)
-                .attr("stroke", isHighlighted ? "white" : "none")
-                .attr("stroke-width", isHighlighted ? 1 : 0);
+            // Native setAttribute (identical string values) avoids a d3.select
+            // wrapper allocation per cell on every hover tick.
+            this.setAttribute("fill-opacity", isHighlighted ? 0.9 : 0.05);
+            this.setAttribute("stroke", isHighlighted ? "white" : "none");
+            this.setAttribute("stroke-width", isHighlighted ? 1 : 0);
         });
     };
 
@@ -2579,28 +2581,32 @@ export function renderSubsetMap(allData, subsetIds, getValue, getColor, layerTyp
 // ========== HIGHLIGHTING HELPERS ==========
 window.highlightMapByReliability = function (min, max) {
     const svg = d3.select(voronoiLayer._container);
+    // Same 100ms d3 transition and identical per-cell logic as before; the only
+    // change is reading data-rel via the native this.getAttribute instead of
+    // re-wrapping each node in d3.select() four times — eliminating ~4 selection
+    // allocations per cell (×~5000 cells, per hover mousemove tick).
     svg.selectAll(".voronoi-cell")
         .transition().duration(100)
         .attr("fill-opacity", function () {
-            const rel = d3.select(this).attr("data-rel");
+            const rel = this.getAttribute("data-rel");
             if (rel === null) return 0.05;
             const val = parseFloat(rel);
             return (val >= min && val < max) ? 0.95 : 0.05;
         })
         .attr("stroke", function () {
-            const rel = d3.select(this).attr("data-rel");
+            const rel = this.getAttribute("data-rel");
             if (rel === null) return "none";
             const val = parseFloat(rel);
             return (val >= min && val < max) ? "white" : "none";
         })
         .attr("stroke-width", function () {
-            const rel = d3.select(this).attr("data-rel");
+            const rel = this.getAttribute("data-rel");
             if (rel === null) return 0;
             const val = parseFloat(rel);
             return (val >= min && val < max) ? 1 : 0;
         })
         .attr("stroke-opacity", function () {
-            const rel = d3.select(this).attr("data-rel");
+            const rel = this.getAttribute("data-rel");
             if (rel === null) return 0.1;
             const val = parseFloat(rel);
             return (val >= min && val < max) ? 1 : 0.1;

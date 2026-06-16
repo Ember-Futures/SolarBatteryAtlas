@@ -10,9 +10,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
     <!-- Preload critical resources -->
-    <link rel="preload" href="js/parquet_wasm_bg.wasm" as="fetch" crossorigin>
-    <link rel="preload" href="data/simulation_results_summary.parquet" as="fetch" crossorigin>
-    <link rel="preload" href="data/world.geojson" as="fetch" crossorigin>
+    <link rel="preload" href="js/parquet_wasm_bg.wasm" as="fetch">
+    <link rel="preload" href="data/simulation_results_summary.parquet" as="fetch">
+    <link rel="preload" href="data/world.geojson" as="fetch">
     <link rel="preload" href="css/style.css" as="style">
 
     <!-- Flatten the ES-module discovery waterfall: preload the full static +
@@ -66,7 +66,7 @@
     <header class="absolute top-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none">
         <!-- Search/Brand Area -->
         <div
-            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg flex items-center p-1 pr-4 gap-3 h-12">
+            class="pointer-events-auto bg-surface border border-white/10 rounded-full shadow-lg flex items-center p-1 pr-4 gap-3 h-12">
             <div class="relative w-10 h-10 rounded-full flex items-center justify-center bg-surface-variant ring-1 ring-white/10 shadow-md overflow-hidden">
                 <svg viewBox="0 0 40 40" class="w-[34px] h-[34px]" fill="none" stroke-linecap="round" stroke-linejoin="round">
                     <defs>
@@ -95,7 +95,7 @@
 
         <!-- View Mode Tabs (Center) -->
         <div data-tour="view-tabs"
-            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg p-1 flex gap-1 absolute left-1/2 -translate-x-1/2">
+            class="pointer-events-auto bg-surface border border-white/10 rounded-full shadow-lg p-1 flex gap-1 absolute left-1/2 -translate-x-1/2">
             <button data-mode="capacity"
                 class="view-tab px-4 py-1.5 rounded-full text-sm font-medium transition-colors bg-primary text-black">
                 Capacity Factor Map
@@ -121,19 +121,19 @@
         <!-- Right Actions -->
         <div data-tour="right-actions" class="pointer-events-auto flex gap-2">
             <button id="tour-start"
-                class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
+                class="bg-surface border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
                 title="Take a guided tour">
                 <span class="material-symbols-outlined text-[20px]">tour</span>
                 <span class="text-sm font-medium hidden sm:inline">Take a Tour</span>
             </button>
             <a href="scrollytelling/index.html"
-                class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
+                class="bg-surface border border-white/10 rounded-full h-12 px-4 flex items-center gap-2 shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
                 title="Article: Harnessing the Sun">
                 <span class="material-symbols-outlined text-[20px]">auto_stories</span>
                 <span class="text-sm font-medium hidden sm:inline">Article</span>
             </a>
             <button id="info-toggle"
-                class="bg-surface/90 backdrop-blur-md border border-white/10 rounded-full w-12 h-12 flex items-center justify-center shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
+                class="bg-surface border border-white/10 rounded-full w-12 h-12 flex items-center justify-center shadow-lg text-gray-300 hover:text-white hover:bg-surface-variant transition-colors"
                 title="Info">
                 <span class="material-symbols-outlined">info</span>
             </button>
@@ -145,7 +145,7 @@
 
         <!-- Primary Controls Card -->
         <div id="primary-controls"
-            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 transition-all duration-300 max-h-[85vh] overflow-y-auto">
+            class="pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 transition-all duration-300 max-h-[85vh] overflow-y-auto">
             <!-- Header -->
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">System Config</h2>
@@ -195,7 +195,7 @@
 
         <!-- LCOE Controls (Only visible in LCOE mode) -->
         <div id="lcoe-controls"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 max-h-[85vh] overflow-y-auto">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-5 space-y-5 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">LCOE Parameters</h2>
             </div>
@@ -400,7 +400,7 @@
 
         <!-- Potential Controls (Only visible in Potential mode) -->
         <div id="potential-controls"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-5">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-5 space-y-5">
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Siting Constraints</h2>
             </div>
@@ -438,7 +438,7 @@
 
         <!-- Sample Controls (Only visible in Samples mode) -->
         <div id="sample-controls"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 space-y-4">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-5 space-y-4">
             <div class="space-y-2">
                 <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Select Week</label>
                 <select id="sample-week-select"
@@ -476,7 +476,7 @@
 
         <!-- Population Controls (Only visible in Population mode) -->
         <div id="population-controls"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 max-h-[80vh] overflow-y-auto panel-collapsible">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-5 max-h-[80vh] overflow-y-auto panel-collapsible">
             <div class="panel-header flex items-center justify-between mb-2">
                 <h2 class="panel-title text-sm font-medium text-gray-400 uppercase tracking-wider">Demand</h2>
                 <button id="population-controls-toggle"
@@ -582,7 +582,7 @@
 
     <!-- Population View Toggle (Bottom Center) -->
     <div id="population-view-toggle"
-        class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg p-1 flex gap-1 absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
+        class="hidden pointer-events-auto bg-surface border border-white/10 rounded-full shadow-lg p-1 flex gap-1 absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
         <div id="population-display-toggle" class="toggle-group toggle-group-grid rounded-full">
             <button data-mode="map"
                 class="toggle-btn is-active">Map</button>
@@ -594,7 +594,7 @@
     <!-- Population Supply Controls (Right) -->
     <div id="population-supply-controls" class="hidden absolute top-20 right-4 z-30 w-80 flex flex-col gap-3 pointer-events-none">
         <div id="population-supply-panel"
-            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-5 max-h-[80vh] overflow-y-auto panel-collapsible ml-auto">
+            class="pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-5 max-h-[80vh] overflow-y-auto panel-collapsible ml-auto">
             <div class="panel-header flex items-center justify-between mb-2">
                 <h2 class="panel-title text-sm font-medium text-gray-400 uppercase tracking-wider">Supply</h2>
                 <button id="population-supply-toggle"
@@ -879,7 +879,7 @@
 
     <!-- LCOE Cost Decline Timeline (Top Right) -->
     <div id="lcoe-time-panel"
-        class="hidden absolute top-20 right-4 z-20 pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl p-4 w-72 space-y-2">
+        class="hidden absolute top-20 right-4 z-20 pointer-events-auto bg-surface border border-white/10 rounded-2xl shadow-xl p-4 w-72 space-y-2">
         <label class="text-xs text-gray-400 uppercase">Cost Decline Timeline</label>
         <div class="flex items-center gap-3">
             <input type="range" id="lcoe-time-slider" min="2026" max="2050" step="1" value="2026"
@@ -902,7 +902,7 @@
 
         <!-- Capacity Legend -->
         <div id="legend-capacity"
-            class="pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Capacity Factor</div>
             <div class="w-full h-2 rounded-full mb-2 legend-gradient"></div>
             <div class="flex justify-between text-[10px] font-mono text-gray-500">
@@ -915,7 +915,7 @@
 
         <!-- Sample Weeks Legend -->
         <div id="legend-samples"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Hourly Dispatch</div>
             <div class="space-y-2">
                 <div class="flex items-center gap-2">
@@ -941,7 +941,7 @@
 
         <!-- Potential Legend -->
         <div id="legend-potential"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div id="legend-potential-title" class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
                 Solar Generation Potential (TWh/yr)
             </div>
@@ -955,7 +955,7 @@
 
         <!-- LCOE Legend -->
         <div id="legend-lcoe"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div id="legend-lcoe-title" class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">LCOE
                 ($/MWh)</div>
             <div class="w-full h-2 rounded-full mb-2 legend-gradient-cost" id="legend-lcoe-bar"></div>
@@ -984,7 +984,7 @@
 
         <!-- Population Legend -->
         <div id="legend-population"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Population</div>
             <div class="w-full h-2 rounded-full mb-2 legend-gradient-pop"></div>
             <div class="flex justify-between text-[10px] font-mono text-gray-500">
@@ -995,7 +995,7 @@
 
         <!-- Electricity Demand Legend -->
         <div id="legend-electricity"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Electricity Demand (TWh/yr)
             </div>
             <div class="w-full h-2 rounded-full mb-2 legend-gradient-pop"></div>
@@ -1007,7 +1007,7 @@
 
         <!-- Energy Access Legend -->
         <div id="legend-access"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="flex justify-between items-center mb-2">
                 <div id="legend-access-title" class="text-xs font-medium text-gray-400 uppercase tracking-wider">Grid Reliability</div>
                 <div id="legend-access-toggle" class="toggle-group">
@@ -1037,7 +1037,7 @@
         class="hidden absolute bottom-8 right-4 z-20 flex flex-col items-end gap-3 pointer-events-none">
         <!-- Supply Capacity Legend -->
         <div id="legend-supply-capacity"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Capacity Factor</div>
             <div class="w-full h-2 rounded-full mb-2 legend-gradient"></div>
             <div class="flex justify-between text-[10px] font-mono text-gray-500">
@@ -1050,7 +1050,7 @@
 
         <!-- Supply LCOE Legend -->
         <div id="legend-supply-lcoe"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div id="legend-supply-lcoe-title" class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
                 LCOE ($/MWh)</div>
             <div class="w-full h-2 rounded-full mb-2 legend-gradient-cost" id="legend-supply-lcoe-bar"></div>
@@ -1065,7 +1065,7 @@
 
         <!-- Supply Potential Legend -->
         <div id="legend-supply-potential"
-            class="hidden pointer-events-auto bg-surface/90 backdrop-blur-md border border-white/10 rounded-xl shadow-xl p-4 w-64">
+            class="hidden pointer-events-auto bg-surface border border-white/10 rounded-xl shadow-xl p-4 w-64">
             <div id="legend-supply-potential-title"
                 class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Solar Generation Potential (TWh/yr)</div>
             <div id="legend-supply-potential-bar" class="w-full h-2 rounded-full mb-2 legend-gradient-potential"></div>
@@ -1338,7 +1338,7 @@
                 <div id="subset-map" class="absolute inset-0 z-0"></div>
                 <!-- Simple legend for subset map -->
                 <div
-                    class="absolute bottom-4 right-4 z-[1000] bg-surface/90 backdrop-blur pointer-events-auto rounded-lg p-3 border border-white/10">
+                    class="absolute bottom-4 right-4 z-[1000] bg-surface pointer-events-auto rounded-lg p-3 border border-white/10">
                     <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1"
                         id="subset-legend-title">Value</div>
                     <div class="text-xs text-white" id="subset-legend-range">--</div>

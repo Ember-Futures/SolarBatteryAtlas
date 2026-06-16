@@ -17,9 +17,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
     <!-- Preload critical resources -->
-    <link rel="preload" href="../js/parquet_wasm_bg.wasm" as="fetch" crossorigin>
-    <link rel="preload" href="../data/simulation_results_summary.parquet" as="fetch" crossorigin>
-    <link rel="preload" href="../data/world.geojson" as="fetch" crossorigin>
+    <link rel="preload" href="../js/parquet_wasm_bg.wasm" as="fetch">
+    <link rel="preload" href="../data/simulation_results_summary.parquet" as="fetch">
+    <link rel="preload" href="../data/world.geojson" as="fetch">
 
     <!-- Flatten the ES-module discovery waterfall: preload the full static +
          dynamic import graph of scrolly.js so all modules fetch in parallel
@@ -517,7 +517,7 @@
 
             <!-- Section 4: Map / Chart toggle (Demand & Supply by Latitude) -->
             <div id="latitude-view-toggle"
-                class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-surface/80 backdrop-blur border border-white/10 rounded-full p-1 flex gap-1">
+                class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-surface border border-white/10 rounded-full p-1 flex gap-1">
                 <button data-latview="map"
                     class="px-3 py-1 text-[10px] font-medium rounded-full bg-white/10 text-white transition-colors hover:bg-white/20">Map</button>
                 <button data-latview="chart"
@@ -686,7 +686,7 @@
 
             <!-- Animation Indicator -->
             <div id="animation-indicator"
-                class="hidden absolute top-5 right-6 bg-surface/90 backdrop-blur-md border border-white/10 rounded-lg p-2 shadow-lg w-[300px]">
+                class="hidden absolute top-5 right-6 bg-surface border border-white/10 rounded-lg p-2 shadow-lg w-[300px]">
                 <div class="flex flex-col gap-1.5">
                     <div class="flex items-center gap-1.5 border-b border-white/10 pb-1">
                         <span
@@ -772,7 +772,7 @@
 
             <!-- LCOE Outlook Panel -->
             <div id="lcoe-outlook-panel"
-                class="hidden absolute top-5 right-6 bg-surface/90 backdrop-blur-md border border-white/10 rounded-lg p-3 shadow-lg w-56 space-y-2">
+                class="hidden absolute top-5 right-6 bg-surface border border-white/10 rounded-lg p-3 shadow-lg w-56 space-y-2">
                 <div class="flex items-center justify-between">
                     <div id="lcoe-outlook-title" class="text-xs font-medium text-gray-300 uppercase tracking-wider">
                         LCOE Outlook
@@ -827,7 +827,7 @@
 
                 <!-- View Toggle (Top Center) -->
                 <div
-                    class="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-surface/80 backdrop-blur border border-white/10 rounded-full p-1 flex gap-1">
+                    class="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-surface border border-white/10 rounded-full p-1 flex gap-1">
                     <button id="step4-btn-map"
                         class="px-3 py-1 text-[10px] font-medium rounded-full bg-white/10 text-white transition-colors hover:bg-white/20">Map
                         View</button>
@@ -843,7 +843,7 @@
                 <!-- Top Globe: LCOE -->
                 <div class="flex-1 relative overflow-hidden transition-all duration-700" id="globe-lcoe-container">
                     <div id="globe-lcoe-frame"
-                        class="absolute inset-5 rounded-2xl border border-white/5 bg-[#0f0f0f]/60 backdrop-blur-sm overflow-hidden">
+                        class="absolute inset-5 rounded-2xl border border-white/5 bg-[#0f0f0f]/60 overflow-hidden">
                         <svg id="globe-lcoe" class="absolute inset-0 w-full h-full z-0"></svg>
                         <canvas id="globe-lcoe-dots"
                             class="absolute inset-0 w-full h-full z-10 pointer-events-none"></canvas>
@@ -863,7 +863,7 @@
                 <!-- Bottom Globe: Population -->
                 <div class="flex-1 relative overflow-hidden transition-all duration-700" id="globe-pop-container">
                     <div id="globe-pop-frame"
-                        class="absolute inset-5 rounded-2xl border border-white/5 bg-[#0f0f0f]/60 backdrop-blur-sm overflow-hidden">
+                        class="absolute inset-5 rounded-2xl border border-white/5 bg-[#0f0f0f]/60 overflow-hidden">
                         <svg id="globe-population" class="absolute inset-0 w-full h-full z-0"></svg>
                         <canvas id="globe-pop-dots"
                             class="absolute inset-0 w-full h-full z-10 pointer-events-none"></canvas>

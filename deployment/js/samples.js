@@ -1,5 +1,5 @@
 
-import { updateMapWithSampleFrame, setSampleLocationClickHandler } from './map.js';
+import { updateMapWithSampleFrame, setSampleLocationClickHandler, setSamplePlaybackActive } from './map.js';
 import { setDayNightEnabled } from './daynight.js';
 
 let sampleWeekData = null;
@@ -30,10 +30,18 @@ const seasonDataCache = new Map();
 
 let cachedSummaryMap = null; // Cached coordinate map for enrichment
 
+// Cap Chart.js backing-store resolution at 2x (see app.js). Idempotent.
+function applyChartDpiCap() {
+    if (window.Chart) {
+        window.Chart.defaults.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    }
+}
+
 // Dynamic Chart.js loader for samples module
 async function ensureChartJsLoaded() {
     if (chartJsLoaded || window.Chart) {
         chartJsLoaded = true;
+        applyChartDpiCap();
         return;
     }
 
@@ -42,6 +50,7 @@ async function ensureChartJsLoaded() {
         script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
         script.onload = () => {
             chartJsLoaded = true;
+            applyChartDpiCap();
             log('Chart.js loaded dynamically (samples)');
             resolve();
         };
@@ -360,10 +369,15 @@ function startPlayback() {
     if (!currentSeasonFrameCount) return;
 
     playButton.textContent = 'Pause';
+    setSamplePlaybackActive(true);
 
     const numFrames = currentSeasonFrameCount;
 
     playbackTimer = setInterval(() => {
+        // Skip work while the tab is backgrounded: nothing is composited to
+        // screen, and the cyclic frame index resumes coherently on return.
+        // (Mirrors the scrollytelling weekly loop's document.hidden guard.)
+        if (document.hidden) return;
         const season = weekSelect.value;
         currentFrameIndex = (currentFrameIndex + 1) % numFrames;
         timeScrubber.value = currentFrameIndex;
@@ -377,6 +391,7 @@ function stopPlayback() {
         playbackTimer = null;
     }
     playButton.textContent = 'Play';
+    setSamplePlaybackActive(false);
 }
 
 function resetToStart() {

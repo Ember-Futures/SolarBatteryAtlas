@@ -31,9 +31,28 @@ export async function loadSummary() {
         const table = wasmTable.intoIPCStream();
         const { tableFromIPC } = await import('../../js/apache-arrow.js');
         const arrowTable = tableFromIPC(table);
-        const data = [];
-        for (const row of arrowTable) {
-            data.push(row.toJSON());
+        // Columnar read instead of per-row row.toJSON(): pulling each column as a
+        // typed array and building rows in one pass avoids ~1.45M polymorphic
+        // StructRow.toJSON() calls + object allocations on the boot main thread
+        // (a GC burst V8 handles worse than SpiderMonkey). Output is byte-identical
+        // to the previous build: same field names/order, same numeric values.
+        const idCol = arrowTable.getChild('location_id').toArray();
+        const latCol = arrowTable.getChild('latitude').toArray();
+        const lonCol = arrowTable.getChild('longitude').toArray();
+        const solarCol = arrowTable.getChild('solar_gw').toArray();
+        const battCol = arrowTable.getChild('batt_gwh').toArray();
+        const cfCol = arrowTable.getChild('annual_cf').toArray();
+        const n = arrowTable.numRows;
+        const data = new Array(n);
+        for (let i = 0; i < n; i++) {
+            data[i] = {
+                location_id: Number(idCol[i]),
+                latitude: latCol[i],
+                longitude: lonCol[i],
+                solar_gw: solarCol[i],
+                batt_gwh: battCol[i],
+                annual_cf: cfCol[i],
+            };
         }
         return data;
     } catch (e) {

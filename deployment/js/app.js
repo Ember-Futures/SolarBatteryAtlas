@@ -114,9 +114,20 @@ function endPerf(marker, extra = {}) {
 }
 
 // Dynamic Chart.js loader
+// Cap Chart.js backing-store resolution at 2x: pixel-identical on dpr<=2
+// screens, and beyond visual acuity (but far cheaper to paint) on 3x panels.
+// Idempotent; called on every ensureChartJsLoaded() path so it applies even
+// when Chart.js was already cached and the onload branch is skipped.
+function applyChartDpiCap() {
+    if (window.Chart) {
+        window.Chart.defaults.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    }
+}
+
 async function ensureChartJsLoaded() {
     if (chartJsLoaded || window.Chart) {
         chartJsLoaded = true;
+        applyChartDpiCap();
         return;
     }
 
@@ -125,6 +136,7 @@ async function ensureChartJsLoaded() {
         script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
         script.onload = () => {
             chartJsLoaded = true;
+            applyChartDpiCap();
             console.log('Chart.js loaded dynamically');
             resolve();
         };

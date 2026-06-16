@@ -250,6 +250,15 @@ body.split-maps #legend-stack {
     transition: fill 0.9s ease, stroke 0.9s ease;
 }
 
+/* During sample-week auto-play, suppress the per-cell fill cross-fade so each
+   500ms recolor paints once instead of restarting an unfinishable 0.9s tween on
+   thousands of SVG cells (a Chrome paint storm). !important beats both the
+   .transition-color class above and the inline transition set in renderSampleVoronoi.
+   The cross-fade is retained for scrubber drags and config changes (not .playing). */
+.sample-voronoi.playing path {
+    transition: none !important;
+}
+
 .voronoi-hover {
     stroke: #ffffff !important;
     stroke-width: 1.2 !important;
