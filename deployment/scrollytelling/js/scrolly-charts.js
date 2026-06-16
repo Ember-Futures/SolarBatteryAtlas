@@ -577,7 +577,7 @@ export async function showUptimeComparisonChart(reliabilityData, locationIndex, 
         if (locationIndex && locationIndex.has(locId)) {
             const locRows = locationIndex.get(locId);
             locRows.forEach(simRow => {
-                if (simRow.annual_cf * 100 >= gridRel && simRow.solar_gw <= 10) {
+                if (simRow.annual_cf * 100 >= gridRel) {
                     const lcoe = computeLcoe(simRow, solarCapex, batteryCapex, solarCrf, batteryCrf, solarOpexPct, batteryOpexPct);
                     if (lcoe < minLcoe) minLcoe = lcoe;
                 }
@@ -941,7 +941,6 @@ export async function showNoAccessLcoeChart(reliabilityData, locationIndex, lcoe
             const locRows = locationIndex.get(row.location_id);
             let minLcoe = Infinity;
             locRows.forEach(simRow => {
-                if (simRow.solar_gw > 10) return;
                 const meetsTarget = useDiesel ? true : simRow.annual_cf >= targetCf;
                 if (!meetsTarget) return;
                 const lcoe = computeLcoe(simRow);

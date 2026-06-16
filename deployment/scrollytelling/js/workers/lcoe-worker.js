@@ -97,7 +97,7 @@ function computeBestLcoe(payload) {
         const localWacc = getLocalWacc(waccByLocation, locationId);
 
         rows.forEach((row) => {
-            if (row.annual_cf >= targetCf && row.solar_gw <= 10) {
+            if (row.annual_cf >= targetCf) {
                 const lcoe = computeLcoe(row, params, multipliers, localCapex, localWacc);
                 if (lcoe < minLcoe) {
                     minLcoe = lcoe;

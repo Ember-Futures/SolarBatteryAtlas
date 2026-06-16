@@ -2385,7 +2385,7 @@ function computeBackupLcoeForAllLocations(sbTarget) {
         let reachConfig = null;
         let minSbCost = Infinity;
         rows.forEach(row => {
-            if (row.solar_gw > 10 || row.annual_cf < sbTarget) return;
+            if (row.annual_cf < sbTarget) return;
             const solarCapexTotal = row.solar_gw * 1000 * effSolarCapex / ilr;
             const batteryCapexTotal = row.batt_gwh * 1000 * effBatteryCapex;
             const sbAnnualCost = solarCapexTotal * solarCrf + solarCapexTotal * solarOpexPct * solarOpexEscalMult
@@ -3283,7 +3283,6 @@ function computeLcoeForAllLocations(targetCf, options = {}) {
         const effectiveWacc = localWacc ?? wacc;
 
         rows.forEach(row => {
-            if (row.solar_gw > 10) return;
             if (useDiesel) {
                 const lcoe = computeLcoe(row, effectiveSolarCapex, effectiveBatteryCapex, effectiveWacc, solarLife, batteryLife, solarOpexPct, batteryOpexPct, { targetCf, includeDieselBackup: true });
                 if (lcoe < minLcoe) {
