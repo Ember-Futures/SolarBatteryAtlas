@@ -24,13 +24,15 @@ module.exports = {
     theme: {
         extend: {
             fontFamily: {
-                sans: ['Poppins', 'sans-serif'],
+                // SF Pro (Apple system font, à la Substack). Mirrors --font-sans
+                // in deployment/css/style.css and scrollytelling/css/scrolly.css.
+                sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', '"SF Pro"', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
             },
             colors: {
                 surface: '#15181a',
                 'surface-variant': '#1f2325',
-                primary: '#13ce74',
-                'ember-hover': '#1de987',
+                primary: '#f59e0b',
+                'ember-hover': '#fbbf24',
                 'on-surface': '#ECEFF5',
                 outline: '#2a2f31',
                 'bg-page': '#0b0d0c',

@@ -42,8 +42,8 @@
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
 
-    <!-- Fonts (preconnect already added above) -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- Fonts: UI text uses the SF Pro system stack (see css/style.css --font-sans
+         and tailwind font-sans). Only the Material Symbols icon font is loaded. -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
         rel="stylesheet" />
 
@@ -71,20 +71,20 @@
                 <svg viewBox="0 0 40 40" class="w-[34px] h-[34px]" fill="none" stroke-linecap="round" stroke-linejoin="round">
                     <defs>
                         <linearGradient id="solarAtlasGrad" x1="0" y1="0" x2="1" y2="1">
-                            <stop offset="0%" stop-color="#5eead4" />
-                            <stop offset="100%" stop-color="#13ce74" />
+                            <stop offset="0%" stop-color="#fbbf24" />
+                            <stop offset="100%" stop-color="#f59e0b" />
                         </linearGradient>
                     </defs>
                     <circle cx="20" cy="20" r="15.5" stroke="url(#solarAtlasGrad)" stroke-width="1.4" />
                     <path d="M5.5 25 Q 20 21.5 34.5 25" stroke="url(#solarAtlasGrad)" stroke-width="1.4" />
-                    <g stroke="#fbbf24" stroke-width="1.25">
+                    <g stroke="#facc15" stroke-width="1.25">
                         <line x1="20" y1="12.8" x2="20" y2="15.2" />
                         <line x1="15.2" y1="15.2" x2="16.5" y2="16.5" />
                         <line x1="24.8" y1="15.2" x2="23.5" y2="16.5" />
                         <line x1="12.5" y1="19.8" x2="14.4" y2="19.8" />
                         <line x1="27.5" y1="19.8" x2="25.6" y2="19.8" />
                     </g>
-                    <circle cx="20" cy="21.8" r="2.9" fill="#fbbf24" stroke="none" />
+                    <circle cx="20" cy="21.8" r="2.9" fill="#facc15" stroke="none" />
                 </svg>
             </div>
             <h1 class="font-medium text-lg tracking-tight text-white hidden sm:inline-flex items-center gap-2">
@@ -187,7 +187,7 @@
                     </div>
                     <div>
                         <div class="text-[10px] text-gray-500 uppercase tracking-wide">Best CF</div>
-                        <div class="text-lg font-medium text-emerald-400" id="stat-max-cf">--%</div>
+                        <div class="text-lg font-medium text-primary" id="stat-max-cf">--%</div>
                     </div>
                 </div>
             </div>
@@ -222,7 +222,7 @@
                     <div class="flex items-center gap-3">
                         <input type="range" id="target-cf-slider" min="50" max="100" step="1" value="90"
                             class="flex-1">
-                        <span class="text-sm font-mono text-emerald-400 w-12 text-right"><span
+                        <span class="text-sm font-mono text-primary w-12 text-right"><span
                                 id="target-cf-val">90</span>%</span>
                     </div>
                 </div>
@@ -513,7 +513,7 @@
                     <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Uptime Threshold</label>
                     <div class="flex justify-between items-end">
                         <label class="text-xs text-gray-300">People below</label>
-                        <span class="text-lg font-light text-emerald-400"><span id="reliability-threshold-val">90</span><span
+                        <span class="text-lg font-light text-primary"><span id="reliability-threshold-val">90</span><span
                                 class="text-xs text-gray-500 ml-1">%</span></span>
                     </div>
                     <input type="range" id="reliability-threshold-slider" min="0" max="100" step="5" value="90"
@@ -659,7 +659,7 @@
                         <div class="flex items-center gap-3">
                             <input type="range" id="pop-target-cf-slider" min="50" max="100" step="1" value="90"
                                 class="flex-1">
-                            <span class="text-sm font-mono text-emerald-400 w-12 text-right"><span
+                            <span class="text-sm font-mono text-primary w-12 text-right"><span
                                     id="pop-target-cf-val">90</span>%</span>
                         </div>
                     </div>
@@ -1291,7 +1291,7 @@
                     <h3 id="access-chart-comparison-title" class="text-sm font-medium text-gray-400 mb-4">Solar vs Grid
                         Comparison</h3>
                     <div id="access-comparison-summary" class="mb-4 p-4 bg-surface-variant rounded-lg">
-                        <div class="text-2xl font-bold text-emerald-400" id="access-comparison-stat">--</div>
+                        <div class="text-2xl font-bold text-primary" id="access-comparison-stat">--</div>
                         <div class="text-xs text-gray-400" id="access-comparison-label">of global population could
                             benefit from solar</div>
                     </div>

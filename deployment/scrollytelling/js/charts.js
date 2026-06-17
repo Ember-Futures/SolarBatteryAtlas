@@ -15,6 +15,8 @@ const COLORS = {
 export function initCharts() {
     Chart.defaults.color = '#94a3b8';
     Chart.defaults.borderColor = '#1e293b';
+    // SF Pro for canvas-rendered chart text (Chart.js doesn't inherit CSS fonts).
+    Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
     SEASONS.forEach(season => {
         const ctx = document.getElementById(`chart-${season}`).getContext('2d');

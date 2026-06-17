@@ -23,9 +23,13 @@ const seasonDataCache = new Map();
 let cachedSummaryMap = null; // Cached coordinate map for enrichment
 
 // Dynamic Chart.js loader for samples module
+// SF Pro for canvas-rendered chart text (Chart.js doesn't inherit CSS fonts).
+const CHART_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
 async function ensureChartJsLoaded() {
     if (chartJsLoaded || window.Chart) {
         chartJsLoaded = true;
+        if (window.Chart) window.Chart.defaults.font.family = CHART_FONT_FAMILY;
         return;
     }
 
@@ -34,6 +38,7 @@ async function ensureChartJsLoaded() {
         script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
         script.onload = () => {
             chartJsLoaded = true;
+            window.Chart.defaults.font.family = CHART_FONT_FAMILY;
             console.log('Chart.js loaded dynamically (samples)');
             resolve();
         };

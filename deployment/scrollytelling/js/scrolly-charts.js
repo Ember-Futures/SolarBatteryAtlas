@@ -60,6 +60,8 @@ function queueChartResize(containerId) {
 function applyChartDpiCap() {
     if (window.Chart) {
         window.Chart.defaults.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        // SF Pro for canvas-rendered chart text (Chart.js doesn't inherit CSS fonts).
+        window.Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
     }
 }
 
