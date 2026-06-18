@@ -159,8 +159,10 @@ body.split-maps #legend-stack {
 
 /* Leaflet Popup Customization */
 .leaflet-popup-content-wrapper {
+    /* Background is 95% opaque, so a backdrop blur is imperceptible — but it forces
+       Safari to re-composite the whole map layer under the filter on every backdrop
+       change (pan/zoom/recolor). Dropped for performance; no visible change. */
     background-color: rgba(21, 24, 26, 0.95);
-    backdrop-filter: blur(8px);
     color: var(--text);
     border: 1px solid var(--divider);
     border-radius: 1rem;
@@ -854,4 +856,17 @@ label.check-row:hover {
 @keyframes tour-nudge-radiate2 {
     0%        { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6); }
     70%, 100% { box-shadow: 0 0 0 48px rgba(245, 158, 11, 0); }
+}
+
+/* Respect the OS "Reduce Motion" setting: stop the decorative, infinitely-looping
+   tour pulses/waves for users who opted in. Each element rests at its base (static)
+   appearance, which matches the resting keyframe — so nothing looks broken. Only
+   affects reduced-motion users; the default experience is unchanged. */
+@media (prefers-reduced-motion: reduce) {
+    .tour-ring,
+    .tour-nudge,
+    .tour-nudge::after,
+    .tour-nudge__icon {
+        animation: none;
+    }
 }

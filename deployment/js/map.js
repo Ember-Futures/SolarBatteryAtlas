@@ -2726,7 +2726,14 @@ function renderSampleVoronoi(mapPoints, locations) {
         .enter()
         .append("path")
         .attr("d", (_, i) => voronoi.renderCell(i))
-        .attr("fill", d => d.color)
+        .each(function (d) {
+            // Stamp the applied fill on the node so updateSampleVoronoiColors can skip
+            // unchanged cells later. Enter selection → every node is fresh, so this
+            // always paints (matching the original). Mirrors d3 .attr() null-handling.
+            const v = d.color;
+            if (v == null) this.removeAttribute("fill"); else this.setAttribute("fill", v);
+            this.__lastFill = v;
+        })
         .attr("fill-opacity", 0.6)
         .attr("stroke", "rgba(255,255,255,0.08)")
         .attr("stroke-width", 0.5)
@@ -2785,7 +2792,18 @@ function updateSampleVoronoiColors(locations) {
     group.classed("playing", samplePlaybackActive);
     group.selectAll("path")
         .data(locations, d => d.location_id)
-        .attr("fill", d => d.color);
+        .each(function (d) {
+            // Skip cells whose colour didn't change this frame. During auto-play the
+            // .playing class disables the fill transition, so this is a pure paint-count
+            // reduction; outside auto-play a changed value still writes and cross-fades
+            // exactly as before (an unchanged value wouldn't transition anyway).
+            // __lastFill lives on the node (reset when renderSampleVoronoi recreates it).
+            const v = d.color;
+            if (this.__lastFill !== v) {
+                if (v == null) this.removeAttribute("fill"); else this.setAttribute("fill", v);
+                this.__lastFill = v;
+            }
+        });
     return true;
 }
 

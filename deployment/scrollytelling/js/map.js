@@ -2270,7 +2270,16 @@ function renderSampleVoronoi(mapPoints, locations) {
     // We merge enter and update selections for color assignment
     // No CSS transition - instant color updates for smooth 500ms animation loop
     enterPaths.merge(paths)
-        .attr("fill", d => d.color)
+        .each(function (d) {
+            // A full (re)render ALWAYS repaints — this group persists and reuses nodes
+            // across renders/modes, so stamping fill and __lastFill together here keeps
+            // them in lockstep and re-establishes the invariant the fast 500ms recolor
+            // path relies on (a reused node can't keep a stale __lastFill). Same cost as
+            // the original (it always set fill here); mirrors d3 .attr() null-handling.
+            const v = d.color;
+            if (v == null) this.removeAttribute("fill"); else this.setAttribute("fill", v);
+            this.__lastFill = v;
+        })
         .attr("fill-opacity", 0.6);
 }
 
@@ -2370,7 +2379,13 @@ export function updateSampleFrameColors(locations, timestamp) {
         locations.forEach(loc => colorMap.set(Number(loc.location_id), loc.color));
 
         g.selectAll("path")
-            .attr("fill", d => colorMap.get(Number(d.location_id)) || d.color || '#9ca3af');
+            .each(function (d) {
+                // Only touch nodes whose fill actually changed this frame — far fewer
+                // SVG mutations per 500ms tick, identical output. __lastFill lives on
+                // the node, so re-created cells repaint correctly (see renderSampleVoronoi).
+                const v = colorMap.get(Number(d.location_id)) || d.color || '#9ca3af';
+                if (this.__lastFill !== v) { this.setAttribute("fill", v); this.__lastFill = v; }
+            });
     }
 
     // Store for moveend handler

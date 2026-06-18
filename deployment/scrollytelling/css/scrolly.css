@@ -628,6 +628,15 @@
     animation: intro-breathe 6s ease-in-out infinite;
 }
 
+/* Reduce Motion: hold the intro at its resting state for opted-in users.
+   The loading spinner is intentionally left spinning — a small loader is not the
+   kind of motion this setting targets, and a frozen spinner reads as "hung". */
+@media (prefers-reduced-motion: reduce) {
+    .intro-breathe {
+        animation: none;
+    }
+}
+
 @keyframes intro-group-fade {
     from {
         opacity: 0;
@@ -913,8 +922,9 @@ html {
 /* Tooltip for data links */
 .data-tooltip {
     position: fixed;
+    /* 95% opaque background → backdrop blur is imperceptible but costs Safari a
+       full map-layer re-composite. Dropped for performance; no visible change. */
     background: rgba(21, 24, 26, 0.95);
-    backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.5rem;
     padding: 0.75rem 1rem;

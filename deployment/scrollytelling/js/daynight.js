@@ -33,6 +33,7 @@ let maskImage = null;
 // they only appear on the night side and fade across the terminator.
 let lightsHiCanvas = null;   // static reprojected lights for the current view (W x H)
 let lightsHiCtx = null;
+let lightsHiImage = null;    // reused ImageData for the reprojected lights (W x H)
 let lightsFrameCanvas = null; // per-frame working buffer (lights x mask)
 let lightsFrameCtx = null;
 let glowCanvas = null;       // scratch for baking the bloom halo (W x H, view-rebuilt)
@@ -106,6 +107,13 @@ let sweepStart = 0;
 let moving = false;
 
 const DEG = Math.PI / 180;
+
+// Users who enabled the OS "Reduce Motion" setting get snapped frames (no smooth
+// terminator sweep). Default users are unaffected.
+function prefersReducedMotion() {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 export function initDayNight(mapInstance, options = {}) {
     if (initialized) return;
@@ -199,7 +207,7 @@ export function updateDayNight(ts) {
 
     const delta = ms - lastDrawnMs;
     const TWO_HOURS = 2 * 3600 * 1000;
-    if (opts.smoothSweep && delta > 0 && delta <= TWO_HOURS && !document.hidden) {
+    if (opts.smoothSweep && delta > 0 && delta <= TWO_HOURS && !document.hidden && !prefersReducedMotion()) {
         startSweep(lastDrawnMs, ms);
     } else {
         cancelSweep();
@@ -212,6 +220,21 @@ export function hideDayNight() {
     if (!initialized) return;
     cancelSweep();
     if (canvas) canvas.style.display = 'none';
+    // Release the large per-view canvas backing stores (5 canvases at ~2.25x the
+    // viewport) and reusable ImageData buffers while the overlay is hidden — they're
+    // only needed in samples mode. showCanvas()/buildViewCache()/buildLightsHi()
+    // rebuild them on re-entry (viewKey is nulled below), so this is invisible.
+    // lightsSrc (the ~26MB decoded Black Marble) is kept on purpose: freeing it would
+    // force a refetch/redecode and a visible shade-only flash on re-entry. lastDrawnMs
+    // is nulled so the first frame back snaps instead of sweeping from a stale time.
+    for (const c of [canvas, gridCanvas, maskCanvas, lightsHiCanvas, lightsFrameCanvas, glowCanvas]) {
+        if (c) { c.width = 0; c.height = 0; }
+    }
+    gridImage = null;
+    maskImage = null;
+    lightsHiImage = null;
+    viewKey = null;
+    lastDrawnMs = null;
 }
 
 export function setDayNightEnabled(on) {
@@ -370,7 +393,14 @@ function buildLightsHi() {
     const floor = opts.lightsFloor;
     const invGamma = 1 / (opts.lightsGamma || 1);
     const colorCut = opts.lightsColorCut || 0;
-    const hi = lightsHiCtx.createImageData(W, H);
+    // Reuse one ImageData across view changes instead of allocating ~W*H*4 bytes every
+    // time. The reprojection loop below writes all four channels of every pixel (the
+    // else-branch zeroes them), so reusing a dirty buffer is safe. Cuts GC churn and
+    // peak memory on repeated view changes (a known Safari pressure point).
+    if (!lightsHiImage || lightsHiImage.width !== W || lightsHiImage.height !== H) {
+        lightsHiImage = lightsHiCtx.createImageData(W, H);
+    }
+    const hi = lightsHiImage;
     const out = hi.data;
     for (let y = 0; y < H; y++) {
         const srcRowBase = rowSrc[y] * sw;

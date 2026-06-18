@@ -2147,7 +2147,14 @@ async function handleSectionCharts(sectionId, state, renderVersion = sectionRend
         updateOutlookToggleUI();
         applyOutlookYear(lcoeOutlookYear, { triggerUpdate: false });
         updateLcoeOutlookMap();
-        startOutlookAnimation();
+        // Auto-play the year sweep on entry — unless Reduce Motion is on, in which case
+        // jump straight to the final settled year (2050, where the sweep would land).
+        // A manual Play-button click still animates: that's an explicit motion request.
+        if (prefersReducedMotion()) {
+            applyOutlookYear(2050);
+        } else {
+            startOutlookAnimation();
+        }
     }
 
     if (isStale()) return;
@@ -3594,6 +3601,15 @@ async function updateWeeklyData(configId, seasonId, { silent = false, force = fa
 }
 
 // ========== ANIMATIONS ==========
+
+// True only when the viewer enabled the OS "Reduce Motion" setting. Used to skip
+// auto-playing sweeps (the correct settled frame is still rendered). Default users
+// are unaffected.
+function prefersReducedMotion() {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function startWeeklyAnimation() {
     if (isAnimatingWeekly || weeklyAnimationInterval) return;
     if (!weeklySampleData || weeklySampleData.length === 0) return;
@@ -3618,6 +3634,9 @@ function startWeeklyAnimation() {
 
     // Use a timer to update map every 500ms (matching main tool)
     // OPTIMIZED: Only updates colors, not DOM structure
+    // Reduced Motion: the initial frame is already rendered above; don't arm the
+    // cycling timer for viewers who opted into reduced motion (no in-between motion).
+    if (prefersReducedMotion()) return;
     weeklyAnimationInterval = setInterval(() => {
         // Skip ticks while the tab is hidden: the loop is modulo-cyclic, so
         // freezing the frame index is unobservable on return, and we avoid
