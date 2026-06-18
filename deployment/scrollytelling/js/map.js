@@ -2390,9 +2390,15 @@ export function isSampleFrameInitialized() {
  * Reset sample frame state (call when leaving Step 3)
  */
 export function resetSampleFrameState() {
-    hideDayNight();
     sampleFrameInitialized = false;
-    sampleInfoById.clear();
+    // Fully tear down the Step-3 sample Voronoi on exit. Without this the yellow/purple
+    // hourly cells persist into the next section because (1) the map 'moveend' handler's
+    // samples branch repaints them (currentMode==='samples' && lastSampleFrame) during the
+    // section's view reset, and (2) the next section's capacity render only joins/removes
+    // 'path.voronoi-cell', while sample cells are plain 'leaflet-interactive' orphans that
+    // clearVoronoiSvgForReuse() also preserves. clearAllMapLayers() removes the cells, nulls
+    // lastSampleFrame, drops the geom caches, clears sampleInfoById and hides day/night.
+    clearAllMapLayers();
 }
 
 export function setSampleLocationClickHandler(handler) {
