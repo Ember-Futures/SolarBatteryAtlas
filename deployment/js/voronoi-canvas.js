@@ -178,7 +178,15 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
 
     function ensureGeometry(s, worldGeoJSON) {
         const origin = map.getPixelOrigin();
-        const key = `${map.getZoom()}|${origin.x},${origin.y}|${s.x}x${s.y}|${rows.length}|${rows[0]?.location_id ?? ''}|${rows[rows.length - 1]?.location_id ?? ''}`;
+        // The pane offset (≈ -mapPanePos) MUST be part of the key. Cells are built in
+        // CONTAINER coordinates (latLngToContainerPoint), which shift on every pan — but
+        // zoom and pixelOrigin do NOT change during a drag (Leaflet just translates the
+        // map pane). Without this, a pan leaves the cached cells at their pre-pan
+        // projection while size() re-pins the canvas to the new origin, so the Voronoi
+        // slides off the basemap after a drag. Including it makes a pan a cache-miss, so
+        // the cells rebuild in lockstep with the reposition.
+        const pane = map.containerPointToLayerPoint([0, 0]);
+        const key = `${map.getZoom()}|${origin.x},${origin.y}|${Math.round(pane.x)},${Math.round(pane.y)}|${s.x}x${s.y}|${rows.length}|${rows[0]?.location_id ?? ''}|${rows[rows.length - 1]?.location_id ?? ''}`;
         const changed = (key !== geomKey) || !voronoi;
         if (changed) {
             const pts = new Array(rows.length); cellX = new Array(rows.length);
