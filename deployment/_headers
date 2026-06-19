@@ -1,0 +1,29 @@
+# Cache headers for SolarBatteryAtlas — Netlify / Cloudflare Pages format.
+# (Copied into dist/ by scripts/build-dist.mjs, so it sits at the publish root.)
+#
+# Brotli compression + global CDN + HTTP/2/3 are AUTOMATIC on both hosts — that's
+# the main load-time win over GitHub Pages, and needs no header here.
+#
+# JS/CSS ship with fixed (non-hashed) filenames, so we revalidate rather than
+# cache them immutably: a redeploy must never be shadowed by a stale 1-year cache.
+# Host-set ETags make revalidation cheap (304 Not Modified when unchanged).
+
+/*
+  Cache-Control: public, max-age=600, must-revalidate
+
+# HTML entry points: always revalidate so a new deploy shows up immediately.
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+/scrollytelling/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Small data (summary parquet, voronoi CSVs, world.geojson, city-lights): stable,
+# day-long cache. Versioned CSVs already add their own ?v= busting.
+/data/*
+  Cache-Control: public, max-age=86400
+
+# Hourly samples are keyed by config (solar/battery) and effectively immutable.
+# If you keep them co-located, cache hard. If you serve them from a separate CDN
+# origin (recommended — see DEPLOYMENT.md), set this header on that origin instead.
+/data/samples/*
+  Cache-Control: public, max-age=31536000, immutable

@@ -90,3 +90,8 @@ export const FEATURE_STAGED_PRELOAD = true;
 export const FEATURE_VORONOI_REUSE = true;
 export const FEATURE_FRAMECACHE = false;
 export const FEATURE_VORONOI_GEOM_CACHE = true;
+
+// 7) FEATURE_VORONOI_CANVAS — render the main Voronoi map on a single <canvas>
+//    instead of ~5,000 SVG <path> nodes. Default OFF until verified pixel/behavior
+//    identical; ?canvas=1 / ?canvas=0 override per page. See deployment/js copy.
+export const FEATURE_VORONOI_CANVAS = false;

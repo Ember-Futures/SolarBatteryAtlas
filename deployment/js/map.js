@@ -9,10 +9,12 @@ import {
     POTENTIAL_PER_CAPITA_BUCKETS,
     POTENTIAL_TOTAL_COLORS,
     FEATURE_VORONOI_REUSE,
-    FEATURE_VORONOI_GEOM_CACHE
+    FEATURE_VORONOI_GEOM_CACHE,
+    FEATURE_VORONOI_CANVAS
 } from './constants.js';
 import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildLcoeTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
 import { initDayNight, updateDayNight, hideDayNight } from './daynight.js';
+import { createVoronoiCanvasLayer } from './voronoi-canvas.js';
 
 // Map a value to a bucket color (shared by the "× Demand" and "per capita"
 // potential display modes, which both use discrete colour buckets).
@@ -130,12 +132,19 @@ function endMapPerf(marker, extra = {}) {
     const heapDeltaMb = Number.isFinite(marker.startHeap) && Number.isFinite(endHeap)
         ? (endHeap - marker.startHeap) / 1048576
         : null;
-    console.debug(`[perf] ${marker.label}`, {
+    const payload = {
         durationMs: Number((performance.now() - marker.startMs).toFixed(2)),
         heapDeltaMb: Number.isFinite(heapDeltaMb) ? Number(heapDeltaMb.toFixed(3)) : null,
         ...marker.meta,
         ...extra
-    });
+    };
+    console.debug(`[perf] ${marker.label}`, payload);
+    // Debug-only: forward to the on-screen perf HUD when it's installed (?perf in
+    // the URL). No-op otherwise — window.__SBA_PERF__ only exists once perf-hud.js
+    // has been imported, which only happens on the ?perf path.
+    if (typeof window !== 'undefined' && window.__SBA_PERF__) {
+        window.__SBA_PERF__(marker.label, payload);
+    }
 }
 
 function buildPopulationScale(values) {
@@ -574,6 +583,9 @@ function fireMarkerEvent(row, eventName) {
 }
 
 function clearVoronoi() {
+    // Hide the canvas Voronoi too (when active) so mode switches don't leave stale
+    // cells; render() re-shows it for the next voronoi mode.
+    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
     if (!voronoiLayer) return;
     d3.select(voronoiLayer._container).selectAll("*").remove();
 }
@@ -1737,6 +1749,8 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
 }
 
 function renderVoronoiDual(mapPoints, data, baseFill, overlayFill, options = {}) {
+    // Dual render uses SVG; hide the canvas Voronoi so it doesn't overlay these cells.
+    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
@@ -2384,6 +2398,29 @@ export function updateCfMap(cfData, options = {}) {
     );
 }
 
+// ---- Canvas Voronoi (flag-gated) ------------------------------------------
+// FEATURE_VORONOI_CANVAS routes the primary map's Voronoi through a single
+// <canvas> (voronoi-canvas.js) instead of ~5,000 SVG paths. ?canvas=1 / ?canvas=0
+// override the flag per page for A/B testing. The layer is created lazily.
+let voronoiCanvasLayer = null;
+let _voronoiCanvasOverride; // undefined until first resolved
+function resolveVoronoiCanvas() {
+    if (_voronoiCanvasOverride === undefined) {
+        _voronoiCanvasOverride = null;
+        try {
+            const q = new URLSearchParams(location.search);
+            if (q.has('canvas')) _voronoiCanvasOverride = q.get('canvas') !== '0';
+        } catch (_) { /* no URL access */ }
+    }
+    return _voronoiCanvasOverride !== null ? _voronoiCanvasOverride : FEATURE_VORONOI_CANVAS;
+}
+function ensureVoronoiCanvas() {
+    if (!voronoiCanvasLayer) {
+        voronoiCanvasLayer = createVoronoiCanvasLayer(map, d3, L, { getColor, fireMarkerEvent });
+    }
+    return voronoiCanvasLayer;
+}
+
 function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
     const { enableHoverSelect = true, useMarkerEvents = true, context = null } = options;
     const perf = startMapPerf('render-voronoi', {
@@ -2395,6 +2432,18 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
     const allowPointerEvents = enableHoverSelect || hasClickHandler;
     const mapRef = context?.map || map;
     const voronoiLayerRef = context?.voronoiLayer || voronoiLayer;
+
+    // Canvas fast path: primary interactive map only (supply/dual maps stay on SVG
+    // for now). Clear any SVG cells first so the two renderers never double-draw.
+    if (mapRef === map && resolveVoronoiCanvas()) {
+        d3.select(voronoiLayerRef._container).selectAll('*').remove();
+        ensureVoronoiCanvas().render(data, fillAccessor, worldGeoJSON, {
+            options, enableHoverSelect, useMarkerEvents
+        });
+        endMapPerf(perf, { rendered: data?.length || 0, canvas: true });
+        return;
+    }
+
     const svg = d3.select(voronoiLayerRef._container);
     if (!FEATURE_VORONOI_REUSE) {
         svg.selectAll('*').remove();
@@ -2662,6 +2711,9 @@ export function updateMapWithSampleFrame(frameData) {
 }
 
 function renderSampleVoronoi(mapPoints, locations) {
+    // Samples render on SVG; hide the canvas Voronoi so its (stale, higher-z-index)
+    // cells don't sit on top of the sample cells.
+    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 

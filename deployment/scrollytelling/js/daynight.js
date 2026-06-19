@@ -366,6 +366,10 @@ function buildViewCache() {
 // per-frame path.
 function buildLightsHi() {
     if (!lightsSrc) return;
+    // Debug-only timing for the perf HUD (?perf). Zero overhead otherwise: when the
+    // HUD isn't loaded the sink is undefined and performance.now() is never called.
+    const _sink = (typeof window !== 'undefined') ? window.__SBA_PERF__ : null;
+    const _t0 = _sink ? performance.now() : 0;
     const W = canvas.width, H = canvas.height;   // padded canvas dimensions
     if (lightsHiCanvas.width !== W || lightsHiCanvas.height !== H) {
         lightsHiCanvas.width = W; lightsHiCanvas.height = H;
@@ -476,6 +480,9 @@ function buildLightsHi() {
         lightsHiCtx.drawImage(glowCanvas, 0, 0);
         lightsHiCtx.restore();
     }
+
+    // Debug-only: report this per-view reprojection's cost to the perf HUD (?perf).
+    if (_sink) _sink('daynight-reproject', { durationMs: performance.now() - _t0 });
 }
 
 function currentViewKey() {
@@ -529,6 +536,12 @@ function render(ms) {
         buildViewCache();
         viewKey = key;
     }
+
+    // Debug-only timing for the perf HUD (?perf), measuring just the per-frame grid
+    // + compositing work (the per-view reprojection in buildViewCache is timed
+    // separately as 'daynight-reproject'). Zero overhead when the HUD isn't loaded.
+    const _sink = (typeof window !== 'undefined') ? window.__SBA_PERF__ : null;
+    const _t0 = _sink ? performance.now() : 0;
 
     const { decl, lon: lonS } = subsolarPoint(ms);
     const sinD = Math.sin(decl);
@@ -596,6 +609,9 @@ function render(ms) {
         ctx.drawImage(lightsFrameCanvas, 0, 0);
         ctx.globalCompositeOperation = 'source-over';
     }
+
+    // Debug-only: report this frame's grid+composite cost to the perf HUD (?perf).
+    if (_sink) _sink('daynight-frame', { durationMs: performance.now() - _t0 });
 }
 
 // ---- Smooth sweep between hourly frames ------------------------------------

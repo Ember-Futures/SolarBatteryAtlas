@@ -88,12 +88,19 @@ function endMapPerf(marker, extra = {}) {
     const heapDeltaMb = Number.isFinite(marker.startHeap) && Number.isFinite(endHeap)
         ? (endHeap - marker.startHeap) / 1048576
         : null;
-    console.debug(`[perf] ${marker.label}`, {
+    const payload = {
         durationMs: Number((performance.now() - marker.startMs).toFixed(2)),
         heapDeltaMb: Number.isFinite(heapDeltaMb) ? Number(heapDeltaMb.toFixed(3)) : null,
         ...marker.meta,
         ...extra
-    });
+    };
+    console.debug(`[perf] ${marker.label}`, payload);
+    // Debug-only: forward to the on-screen perf HUD when it's installed (?perf in
+    // the URL). No-op otherwise — window.__SBA_PERF__ only exists once perf-hud.js
+    // has been imported, which only happens on the ?perf path.
+    if (typeof window !== 'undefined' && window.__SBA_PERF__) {
+        window.__SBA_PERF__(marker.label, payload);
+    }
 }
 
 function buildPopulationScale(values) {

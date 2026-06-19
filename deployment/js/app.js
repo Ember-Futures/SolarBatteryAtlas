@@ -27,6 +27,13 @@ import { ALL_FUELS, FUEL_COLORS, TX_WACC, TX_LIFE, BASE_LOAD_MW, DIESEL_THERMAL_
 import { createSharedPopup, buildPlantTooltip } from './tooltip.js';
 import { initTour } from './tour.js';
 
+// Debug-only performance HUD. Loaded ONLY when the URL has ?perf (or ?perf=1), so
+// normal users never fetch perf-hud.js and never see the overlay. It installs the
+// window.__SBA_PERF__ sink that the timing hooks in map.js / daynight.js feed.
+try {
+    if (new URLSearchParams(location.search).has('perf')) import('./perf-hud.js');
+} catch (_) { /* measurement is best-effort; never break the app */ }
+
 const d3 = window.d3;
 
 // State
