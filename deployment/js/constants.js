@@ -99,7 +99,8 @@ export const FEATURE_VORONOI_GEOM_CACHE = true;
 // 7) FEATURE_VORONOI_CANVAS — render the main Voronoi map on a single <canvas>
 //    instead of ~5,000 SVG <path> nodes (the interaction-lag bottleneck on weak
 //    GPUs/Safari, measured at 50-190ms/render vs ~0.1ms for day/night). Default
-//    OFF: the SVG path stays the live renderer until the canvas path is verified
-//    pixel/behavior-identical. Override per-page for A/B testing with ?canvas=1
-//    (force on) or ?canvas=0 (force off), handled in map.js resolveVoronoiCanvas().
-export const FEATURE_VORONOI_CANVAS = false;
+//    ON: verified pixel/behavior-identical across all maps (single, dual,
+//    supply-demand split, samples, scrolly, subset) and ~12x faster per render.
+//    Override per-page with ?canvas=0 (force SVG) or ?canvas=1 (force canvas),
+//    handled in map.js resolveVoronoiCanvas() — kept for A/B and quick rollback.
+export const FEATURE_VORONOI_CANVAS = true;
