@@ -441,10 +441,12 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         if (h.options && h.options.onClick) h.options.onClick(row);
     }
 
-    // Re-project + redraw when the map's size settles (e.g. the supply map after the
-    // split's invalidateSize, or any window resize). Leaflet's SVG layer resizes for
-    // free; the canvas must follow its map. ensureGeometry rebuilds because geomKey
-    // includes the size, so the cached fills re-draw at the new projection.
+    // Re-position + re-project + redraw on EVERY view change. Our cells are in
+    // container coordinates, so a pan/zoom/resize moves the basemap out from under
+    // them unless we re-project (geomKey includes zoom+pixelOrigin+size, so
+    // ensureGeometry rebuilds). Leaflet's SVG renderer and daynight.js do the same;
+    // relying on the app to re-render on moveend is not enough — the scrollytelling
+    // sticky map changes its view/size per section without re-rendering the cells.
     function refresh() {
         if (!visible || !rows.length) return;
         const s = size();
@@ -452,7 +454,7 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         draw();
         drawHover();
     }
-    map.on('resize', refresh);
+    map.on('moveend zoomend viewreset resize', refresh);
 
     // Fast per-frame recolor (sample playback): same geometry + handlers, new data
     // (same ids/order) with new colours. No geometry rebuild, no handler change.
