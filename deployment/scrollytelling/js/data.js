@@ -170,7 +170,11 @@ async function readSampleArrowTable(solarGw, battGwh) {
     const wasm = await initWasm();
 
     const filename = `samples_s${solarGw}_b${battGwh}.parquet`;
-    const response = await fetch(`../data/samples/${filename}`);
+    // Deploy-time override: set window.__SAMPLES_BASE_URL__ (e.g. an R2/S3+CDN
+    // origin, with trailing slash) to serve the 2.3 GB samples off the app host.
+    // Unset → the original co-located path, so default behavior is byte-identical.
+    const base = (typeof window !== 'undefined' && window.__SAMPLES_BASE_URL__) || '../data/samples/';
+    const response = await fetch(`${base}${filename}`);
 
     if (!response.ok) {
         throw new Error(`Sample file not found: ${filename}`);
@@ -254,8 +258,11 @@ export async function loadWeeklyFrameCache(configId, season) {
         `${configId}_${seasonKey}.parquet`
     ];
 
+    // Deploy-time override (see __SAMPLES_BASE_URL__): point the light framecache
+    // samples at a CDN origin. Unset → original co-located path (byte-identical).
+    const lightBase = (typeof window !== 'undefined' && window.__SAMPLES_LIGHT_BASE_URL__) || '../data/samples_light/';
     for (const filename of candidates) {
-        const response = await fetch(`../data/samples_light/${filename}`);
+        const response = await fetch(`${lightBase}${filename}`);
         if (!response.ok) continue;
 
         const buffer = await response.arrayBuffer();

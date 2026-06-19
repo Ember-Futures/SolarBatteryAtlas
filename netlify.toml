@@ -1,0 +1,24 @@
+# Netlify deploy config for SolarBatteryAtlas.
+#
+# Brotli compression, HTTP/2/3, and a global CDN are automatic — that's the load
+# win over GitHub Pages. `npm run build` minifies JS/CSS into dist/ (see
+# scripts/build-dist.mjs). No UI/UX changes.
+#
+# DATA: `npm run build` produces dist/ WITHOUT the 2.3 GB data/samples tree
+# (Netlify deploys cap total/file size). Host the samples on a CDN origin
+# (Cloudflare R2 or S3+CloudFront) and point the app at it with SAMPLES_BASE_URL
+# below — the build injects it into the HTML, no source change. The rest of data/
+# (~30 MB: summary parquet, CSVs, geojson, city-lights, samples_light) ships with
+# the app, so it works out of the box.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Set these to your samples CDN origin (TRAILING SLASH REQUIRED), then redeploy:
+  # SAMPLES_BASE_URL = "https://samples.cdn.example.com/samples/"
+  # SAMPLES_LIGHT_BASE_URL = "https://samples.cdn.example.com/samples_light/"
+
+# Cache-Control headers are defined in deployment/_headers, which the build copies
+# to dist/_headers (the publish root) where Netlify reads it.
