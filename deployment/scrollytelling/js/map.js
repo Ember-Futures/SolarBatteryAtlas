@@ -10,10 +10,12 @@ import {
     POTENTIAL_PER_CAPITA_BUCKETS,
     POTENTIAL_TOTAL_COLORS,
     FEATURE_VORONOI_REUSE,
-    FEATURE_VORONOI_GEOM_CACHE
+    FEATURE_VORONOI_GEOM_CACHE,
+    FEATURE_VORONOI_CANVAS
 } from './constants.js';
 import { createSharedPopup, buildTooltipHtml, buildCfTooltip, buildPlantTooltip, formatFirmCfText, buildDieselBackupLines, buildCountryLine } from './tooltip.js';
 import { initDayNight, updateDayNight, hideDayNight } from './daynight.js';
+import { createVoronoiCanvasLayer } from './voronoi-canvas.js';
 
 // Per-cell country overlap list (location_id -> ordered string[]), populated from
 // scrolly.js once the overlapping-countries CSV loads. Lets every map tooltip show
@@ -223,6 +225,42 @@ function clearVoronoiSvgFully() {
     voronoiGeomCache = null;
     voronoiClipVersion = null;
 }
+
+// ---- Canvas Voronoi (flag-gated; ?canvas=1/0 override) ----
+const canvasLayerByMap = new Map();
+let _voronoiCanvasOverride;
+function resolveVoronoiCanvas() {
+    if (_voronoiCanvasOverride === undefined) {
+        _voronoiCanvasOverride = null;
+        try { const q = new URLSearchParams(location.search); if (q.has('canvas')) _voronoiCanvasOverride = q.get('canvas') !== '0'; } catch (_) { /* no URL */ }
+    }
+    return _voronoiCanvasOverride !== null ? _voronoiCanvasOverride : FEATURE_VORONOI_CANVAS;
+}
+// Module-level marker dispatch (mirrors the per-render closure in renderVoronoi) so
+// the canvas layer can fire the same hit-marker events.
+function fireMarkerEventModule(row, eventName) {
+    const marker = row && row.__hitMarker;
+    if (marker && typeof marker.fire === 'function') { marker.fire(eventName); return true; }
+    let fired = false;
+    if (markersLayer) markersLayer.eachLayer(layer => {
+        if (fired || !layer.getLatLng) return;
+        const latLng = layer.getLatLng();
+        if (Math.abs(latLng.lat - row.latitude) < 0.0001 && Math.abs(latLng.lng - row.longitude) < 0.0001) {
+            if (typeof layer.fire === 'function') layer.fire(eventName);
+            fired = true;
+        }
+    });
+    return fired;
+}
+function ensureVoronoiCanvas(targetMap = map) {
+    let layer = canvasLayerByMap.get(targetMap);
+    if (!layer) {
+        layer = createVoronoiCanvasLayer(targetMap, d3, L, { getColor, fireMarkerEvent: fireMarkerEventModule, getRowKey: (row) => Number(row.location_id) });
+        canvasLayerByMap.set(targetMap, layer);
+    }
+    return layer;
+}
+function getCanvasLayer(targetMap = map) { return canvasLayerByMap.get(targetMap) || null; }
 
 export async function initMap(onLocationSelect) {
     map = L.map('map', {
@@ -1178,6 +1216,8 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
 
 function renderVoronoiDual(mapPoints, data, baseFill, overlayFill, options = {}) {
     const { onHover, onOut, onClick } = options;
+    // Dual stays on SVG for now; hide the canvas Voronoi so it doesn't overlay these.
+    getCanvasLayer(map)?.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
@@ -1812,6 +1852,30 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
     // to this render's callbacks (no per-render listener rebinds needed).
     voronoiHandlersRef = { options, enableHoverSelect, fireMarkerEvent };
 
+    // Canvas fast path: render the main map on the canvas layer (entry animations +
+    // hover + chart highlight). The marker-or-onHover precedence matches the SVG path.
+    if (resolveVoronoiCanvas()) {
+        clearVoronoiSvgFully();
+        // Chart->map highlight (lcoe) — defined here so it exists even though we
+        // return before the SVG definition below; dims non-matching cells on canvas.
+        window.updateMapWithHighlightLcoe = (locationIds) => {
+            if (currentMode !== 'lcoe' && currentMode !== 'lcoe_cf') return;
+            getCanvasLayer(map)?.setHighlightSet(locationIds ? locationIds.map(Number) : null);
+        };
+        if (mapPoints.length <= 1) { getCanvasLayer(map)?.hide(); endMapPerf(perf, { rendered: 0, skipped: true }); return; }
+        ensureVoronoiCanvas(map).render(data, fillAccessor, worldGeoJSON, {
+            enableHoverSelect,
+            useMarkerEvents: false,
+            options: {
+                onHover: (e, d) => { if (!fireMarkerEvent(d, 'mouseover') && options.onHover) options.onHover(e, d); },
+                onOut: (e, d) => { if (!fireMarkerEvent(d, 'mouseout') && options.onOut) options.onOut(e, d); },
+                onClick: (d) => { if (options.onClick) options.onClick(d); else fireMarkerEvent(d, 'click'); },
+            },
+        }, { fadeIn: options.fadeIn, ripple });
+        endMapPerf(perf, { rendered: data.length, canvas: true });
+        return;
+    }
+
     // If only one point, just a circle
     if (mapPoints.length === 1) {
         // ... (simplified for now, or just skip)
@@ -2159,6 +2223,8 @@ let lastVoronoi = null;
 let lastVoronoiPoints = null;
 
 function renderSampleVoronoi(mapPoints, locations) {
+    // Sample frame stays on SVG for now; hide the canvas so it doesn't overlay.
+    getCanvasLayer(map)?.hide();
     const svg = d3.select(voronoiLayer._container);
 
     // Check if we can reuse the Voronoi diagram
