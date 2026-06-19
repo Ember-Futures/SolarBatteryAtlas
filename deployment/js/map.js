@@ -514,14 +514,18 @@ function syncHoverToSupply(row) {
     const supplyRow = supplyDataByCoord.get(key);
     if (!supplyRow) return;
 
-    if (activeSupplyHoverKey && activeSupplyHoverKey !== key) {
-        const prevEl = supplyVoronoiIndex.get(activeSupplyHoverKey);
-        if (prevEl) clearHoverRim(prevEl);
+    const supplyCanvas = getCanvasLayer(supplyMap);
+    if (supplyCanvas) {
+        supplyCanvas.highlightKey(key); // canvas: highlight the supply cell by key
+    } else {
+        if (activeSupplyHoverKey && activeSupplyHoverKey !== key) {
+            const prevEl = supplyVoronoiIndex.get(activeSupplyHoverKey);
+            if (prevEl) clearHoverRim(prevEl);
+        }
+        const el = supplyVoronoiIndex.get(key);
+        if (el) applyHoverRim(el);
     }
     activeSupplyHoverKey = key;
-
-    const el = supplyVoronoiIndex.get(key);
-    if (el) applyHoverRim(el);
 
     const popup = ensureSupplyPopup();
     const html = buildSupplyTooltipHtml(supplyRow, lastSupplyState.overlayMode, lastSupplyState.potentialState);
@@ -533,7 +537,10 @@ function syncHoverToSupply(row) {
 function syncOutToSupply(row) {
     if (!dualMapEnabled || !supplyMap) return;
     const key = getRowKey(row);
-    if (key && supplyVoronoiIndex.has(key)) {
+    const supplyCanvas = getCanvasLayer(supplyMap);
+    if (supplyCanvas) {
+        supplyCanvas.clearHighlight();
+    } else if (key && supplyVoronoiIndex.has(key)) {
         clearHoverRim(supplyVoronoiIndex.get(key));
     }
     if (activeSupplyHoverKey === key) activeSupplyHoverKey = null;
@@ -549,21 +556,28 @@ function syncHoverToDemand(row) {
     const demandRow = demandDataByCoord.get(key);
     if (!demandRow) return;
 
-    if (activeDemandHoverKey && activeDemandHoverKey !== key) {
-        const prevEl = demandVoronoiIndex.get(activeDemandHoverKey);
-        if (prevEl) clearHoverRim(prevEl);
+    const demandCanvas = getCanvasLayer(map);
+    if (demandCanvas) {
+        demandCanvas.highlightKey(key); // canvas: highlight the demand cell by key
+    } else {
+        if (activeDemandHoverKey && activeDemandHoverKey !== key) {
+            const prevEl = demandVoronoiIndex.get(activeDemandHoverKey);
+            if (prevEl) clearHoverRim(prevEl);
+        }
+        const el = demandVoronoiIndex.get(key);
+        if (el) applyHoverRim(el);
     }
     activeDemandHoverKey = key;
-
-    const el = demandVoronoiIndex.get(key);
-    if (el) applyHoverRim(el);
     fireMarkerEvent(demandRow, 'mouseover');
 }
 
 function syncOutToDemand(row) {
     if (!dualMapEnabled || !map) return;
     const key = getRowKey(row);
-    if (key && demandVoronoiIndex.has(key)) {
+    const demandCanvas = getCanvasLayer(map);
+    if (demandCanvas) {
+        demandCanvas.clearHighlight();
+    } else if (key && demandVoronoiIndex.has(key)) {
         clearHoverRim(demandVoronoiIndex.get(key));
     }
     if (activeDemandHoverKey === key) activeDemandHoverKey = null;
@@ -585,7 +599,7 @@ function fireMarkerEvent(row, eventName) {
 function clearVoronoi() {
     // Hide the canvas Voronoi too (when active) so mode switches don't leave stale
     // cells; render() re-shows it for the next voronoi mode.
-    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
+    getCanvasLayer(map)?.hide();
     if (!voronoiLayer) return;
     d3.select(voronoiLayer._container).selectAll("*").remove();
 }
@@ -1749,8 +1763,31 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
 }
 
 function renderVoronoiDual(mapPoints, data, baseFill, overlayFill, options = {}) {
+    // Canvas dual path: draw base+overlay on the primary canvas layer. The cross-map
+    // hover sync is preserved by wrapping onHover/onOut to also call sync*ToSupply
+    // (the canvas layer itself draws the rim + fires marker events). demandVoronoiIndex
+    // is left cleared — on canvas, highlightKey(key) replaces the DOM-element lookup.
+    if (resolveVoronoiCanvas()) {
+        d3.select(voronoiLayer._container).selectAll("*").remove();
+        demandVoronoiIndex = new Map();
+        if (mapPoints.length <= 1 || (typeof baseFill !== 'function' && typeof overlayFill !== 'function')) {
+            getCanvasLayer(map)?.hide();
+            return;
+        }
+        ensureVoronoiCanvas(map).renderDual(data, baseFill, overlayFill, worldGeoJSON, {
+            enableHoverSelect: true,
+            useMarkerEvents: true,
+            options: {
+                onHover: (e, d) => { syncHoverToSupply(d); if (options.onHover) options.onHover(e, d); },
+                onOut: (e, d) => { syncOutToSupply(d); if (options.onOut) options.onOut(e, d); },
+                onClick: (d) => { if (options.onClick) options.onClick(null, d); },
+            },
+        });
+        return;
+    }
+
     // Dual render uses SVG; hide the canvas Voronoi so it doesn't overlay these cells.
-    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
+    getCanvasLayer(map)?.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
@@ -2402,7 +2439,9 @@ export function updateCfMap(cfData, options = {}) {
 // FEATURE_VORONOI_CANVAS routes the primary map's Voronoi through a single
 // <canvas> (voronoi-canvas.js) instead of ~5,000 SVG paths. ?canvas=1 / ?canvas=0
 // override the flag per page for A/B testing. The layer is created lazily.
-let voronoiCanvasLayer = null;
+// One canvas layer per Leaflet map (primary, supply, ...) — keyed by the map so
+// the dual/supply views can each have their own canvas without colliding.
+const canvasLayerByMap = new Map();
 let _voronoiCanvasOverride; // undefined until first resolved
 function resolveVoronoiCanvas() {
     if (_voronoiCanvasOverride === undefined) {
@@ -2414,11 +2453,16 @@ function resolveVoronoiCanvas() {
     }
     return _voronoiCanvasOverride !== null ? _voronoiCanvasOverride : FEATURE_VORONOI_CANVAS;
 }
-function ensureVoronoiCanvas() {
-    if (!voronoiCanvasLayer) {
-        voronoiCanvasLayer = createVoronoiCanvasLayer(map, d3, L, { getColor, fireMarkerEvent });
+function ensureVoronoiCanvas(targetMap = map) {
+    let layer = canvasLayerByMap.get(targetMap);
+    if (!layer) {
+        layer = createVoronoiCanvasLayer(targetMap, d3, L, { getColor, fireMarkerEvent, getRowKey });
+        canvasLayerByMap.set(targetMap, layer);
     }
-    return voronoiCanvasLayer;
+    return layer;
+}
+function getCanvasLayer(targetMap = map) {
+    return canvasLayerByMap.get(targetMap) || null;
 }
 
 function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
@@ -2433,11 +2477,11 @@ function renderVoronoi(mapPoints, data, fillAccessor, options = {}) {
     const mapRef = context?.map || map;
     const voronoiLayerRef = context?.voronoiLayer || voronoiLayer;
 
-    // Canvas fast path: primary interactive map only (supply/dual maps stay on SVG
-    // for now). Clear any SVG cells first so the two renderers never double-draw.
-    if (mapRef === map && resolveVoronoiCanvas()) {
+    // Canvas fast path: route this map (primary OR the supply map via context) to
+    // its own canvas layer. Clear any SVG cells first so the two never double-draw.
+    if (resolveVoronoiCanvas()) {
         d3.select(voronoiLayerRef._container).selectAll('*').remove();
-        ensureVoronoiCanvas().render(data, fillAccessor, worldGeoJSON, {
+        ensureVoronoiCanvas(mapRef).render(data, fillAccessor, worldGeoJSON, {
             options, enableHoverSelect, useMarkerEvents
         });
         endMapPerf(perf, { rendered: data?.length || 0, canvas: true });
@@ -2710,10 +2754,54 @@ export function updateMapWithSampleFrame(frameData) {
     updateDayNight(frameData.timestamp);
 }
 
+// Canvas fill for a sample cell: NA hatch for no-data, else the dominance colour.
+function sampleCanvasFill(d) {
+    return (d.isNA || !Number.isFinite(d.solarShare)) ? createVoronoiCanvasLayer.NA_FILL : d.color;
+}
+
 function renderSampleVoronoi(mapPoints, locations) {
+    // Canvas sample path: render the hourly sample voronoi on canvas (NA hatch for
+    // no-data cells, samplePopup on hover). Cross-fade is suppressed during playback
+    // (instant), matching the SVG `.playing` rule. Day/night stays on its own pane.
+    if (resolveVoronoiCanvas()) {
+        d3.select(voronoiLayer._container).selectAll("*").remove();
+        if (mapPoints.length <= 1) { getCanvasLayer(map)?.hide(); return; }
+        const sampleHover = (e, d) => {
+            if (!samplePopup) return;
+            let content;
+            if (d.isNA || !Number.isFinite(d.solarShare)) {
+                content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">No data</div>
+                    <div class="text-[11px] text-muted">No dispatch data for this point at this hour.</div>
+                </div>`;
+            } else {
+                const solar = Number.isFinite(d.solarShare) ? (d.solarShare * 100).toFixed(1) : '--';
+                const battery = Number.isFinite(d.batteryShare) ? (d.batteryShare * 100).toFixed(1) : '--';
+                const other = Number.isFinite(d.otherShare) ? (d.otherShare * 100).toFixed(1) : '--';
+                content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">Generation mix</div>
+                    <div class="text-[11px] text-muted">Solar: ${solar}%</div>
+                    <div class="text-[11px] text-muted">Battery: ${battery}%</div>
+                    <div class="text-[11px] text-muted">Other: ${other}%</div>
+                </div>`;
+            }
+            samplePopup.setLatLng([d.latitude, d.longitude]).setContent(appendCountryLine(content, d)).openOn(map);
+        };
+        ensureVoronoiCanvas(map).render(locations, sampleCanvasFill, worldGeoJSON, {
+            enableHoverSelect: true,
+            useMarkerEvents: false,
+            options: {
+                onHover: sampleHover,
+                onOut: () => { if (samplePopup) map.closePopup(samplePopup); },
+                onClick: (d) => { if (sampleLocationHandler) sampleLocationHandler({ location_id: d.location_id, latitude: d.latitude, longitude: d.longitude, solarShare: d.solarShare ?? 0, batteryShare: d.batteryShare ?? 0, otherShare: d.otherShare ?? 0 }); },
+            },
+        }, { instant: samplePlaybackActive });
+        return;
+    }
+
     // Samples render on SVG; hide the canvas Voronoi so its (stale, higher-z-index)
     // cells don't sit on top of the sample cells.
-    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
+    getCanvasLayer(map)?.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
@@ -2835,6 +2923,12 @@ function renderSampleVoronoi(mapPoints, locations) {
 }
 
 function updateSampleVoronoiColors(locations) {
+    if (resolveVoronoiCanvas()) {
+        const layer = getCanvasLayer(map);
+        // Fast per-frame recolor on canvas (instant during playback). Returns false
+        // if the layer isn't rendered yet → caller falls back to a full render.
+        return layer ? layer.recolor(locations, sampleCanvasFill, { instant: samplePlaybackActive }) : false;
+    }
     const svg = d3.select(voronoiLayer._container);
     const group = svg.select(".sample-voronoi");
     if (group.empty()) return false;
@@ -2922,6 +3016,28 @@ export function renderSubsetMap(allData, subsetIds, getValue, getColor, layerTyp
     // Common setup
     const size = subsetMap.getSize();
     const subsetSet = new Set(subsetIds);
+
+    // Canvas path: render only the subset cells (non-subset → null fill → not drawn,
+    // not hoverable). Re-render on the subset map's own view changes.
+    if (resolveVoronoiCanvas()) {
+        d3.select(subsetVoronoiLayer._container).selectAll('*').remove();
+        const fillAcc = (d) => subsetSet.has(d.location_id)
+            ? { fillColor: getColor(getValue(d)), fillOpacity: 0.9 }
+            : { fillColor: null };
+        const layer = ensureVoronoiCanvas(subsetMap);
+        const drawCanvas = () => layer.render(allData, fillAcc, worldGeoJSON, {
+            enableHoverSelect: !!(onPointHover || onPointOut),
+            useMarkerEvents: false,
+            options: {
+                onHover: (e, d) => { if (onPointHover) onPointHover(e, d); },
+                onOut: (e, d) => { if (onPointOut) onPointOut(e, d); },
+            },
+        });
+        drawCanvas();
+        subsetMap.off('moveend'); subsetMap.off('resize'); subsetMap.off('zoomend'); subsetMap.off('viewreset'); subsetMap.off('zoom');
+        subsetMap.on('moveend zoomend viewreset zoom', drawCanvas);
+        return;
+    }
 
     const draw = () => {
         try {
