@@ -403,6 +403,9 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         const cp = map.mouseEventToContainerPoint(e);
         const idx = delaunay.find(cp.x, cp.y);
         if (idx == null || idx < 0) return -1;
+        // Don't hover a cell that isn't drawn (e.g. non-subset cells with a null fill
+        // in the subset/comparison map) — matches the SVG, which has no element there.
+        if (mode === 'single' && fillState.displayed[idx] == null) return -1;
         if (landPath) {
             bctx.save(); bctx.setTransform(1, 0, 0, 1, 0, 0);
             const inLand = bctx.isPointInPath(landPath, cp.x, cp.y);

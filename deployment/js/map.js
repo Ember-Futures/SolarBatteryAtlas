@@ -2967,6 +2967,28 @@ export function renderSubsetMap(allData, subsetIds, getValue, getColor, layerTyp
     const size = subsetMap.getSize();
     const subsetSet = new Set(subsetIds);
 
+    // Canvas path: render only the subset cells (non-subset → null fill → not drawn,
+    // not hoverable). Re-render on the subset map's own view changes.
+    if (resolveVoronoiCanvas()) {
+        d3.select(subsetVoronoiLayer._container).selectAll('*').remove();
+        const fillAcc = (d) => subsetSet.has(d.location_id)
+            ? { fillColor: getColor(getValue(d)), fillOpacity: 0.9 }
+            : { fillColor: null };
+        const layer = ensureVoronoiCanvas(subsetMap);
+        const drawCanvas = () => layer.render(allData, fillAcc, worldGeoJSON, {
+            enableHoverSelect: !!(onPointHover || onPointOut),
+            useMarkerEvents: false,
+            options: {
+                onHover: (e, d) => { if (onPointHover) onPointHover(e, d); },
+                onOut: (e, d) => { if (onPointOut) onPointOut(e, d); },
+            },
+        });
+        drawCanvas();
+        subsetMap.off('moveend'); subsetMap.off('resize'); subsetMap.off('zoomend'); subsetMap.off('viewreset'); subsetMap.off('zoom');
+        subsetMap.on('moveend zoomend viewreset zoom', drawCanvas);
+        return;
+    }
+
     const draw = () => {
         try {
             // Clear ALL SVG contents to prevent stale elements on zoom/pan
