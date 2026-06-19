@@ -1,38 +1,33 @@
 // voronoi-canvas.js — render a Voronoi map on a single <canvas> instead of
 // ~5,000 SVG <path> nodes. Gated by FEATURE_VORONOI_CANVAS (default off) + the
-// ?canvas=1/0 override. One instance per Leaflet map (the primary map, and — as
-// the migration proceeds — the supply/dual and subset maps too).
+// ?canvas=1/0 override. One instance per Leaflet map (primary, supply, subset).
 //
 // WHY: ~5,000 SVG cells force the browser to lay out/paint thousands of DOM nodes
 // on every recolor/pan/zoom — measured at 50-190ms/render and the dominant cause
 // of interaction lag on weak GPUs/Safari. One canvas draw collapses that.
 //
-// IDENTITY: we reuse d3's own geometry so the pixels match the SVG path —
-//   - the land clip is built with d3.geoPath(transform, ctx) (same projection the
-//     SVG <clipPath> used), and
-//   - each cell is stroked via voronoi.renderCell(i, ctx) (same path the SVG used).
-// Positioning mirrors daynight.js: the canvas lives in a Leaflet pane, so during a
-// drag Leaflet's pane transform carries it (cells follow the basemap), and we
-// redraw on the moveend that already re-invokes the render.
+// IDENTITY: we reuse d3's own geometry so the pixels match the SVG path — the land
+// clip via d3.geoPath(transform, ctx) (same projection as the SVG <clipPath>) and
+// each cell via voronoi.renderCell(i, ctx) (same path as the SVG). Positioning
+// mirrors daynight.js: the canvas lives in a Leaflet pane, so a drag's pane
+// transform carries it; we redraw on the moveend that re-invokes the render.
 //
 // ANIMATION: SVG cells get `.transition-color { transition: fill 0.9s ease }` for
-// free; canvas does not, so a small rAF engine replicates the 0.9s fill cross-fade
-// on recolor (and, when callers ask, entry fade-in / ripple — added later). The
-// loop idles (no rAF) whenever nothing is animating.
+// free; a small rAF engine replicates the 0.9s fill cross-fade on recolor (per
+// fill layer — single maps have one, the dual/supply view has base+overlay). The
+// loop idles (no rAF) when nothing is animating.
 //
-// HIT-TESTING: SVG gave per-cell DOM events for free; here we hit-test with
-// delaunay.find(x,y) (O(1)) and gate it by isPointInPath(landPath) so ocean areas
-// don't respond — matching the SVG cells' clip to land.
+// HIT-TESTING: SVG gave per-cell DOM events for free; we hit-test with
+// delaunay.find(x,y) (O(1)), gated by isPointInPath(landPath) so ocean is inert.
+// A key→index map also lets another map drive a cross-map highlight (highlightKey).
 
-// Match the chart DPI cap: backing store at up to 2x device pixels keeps cells
-// crisp without ballooning canvas memory on 4K/Retina displays.
 function dpr() {
     const r = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    return Math.min(r, 2);
+    return Math.min(r, 2); // match the chart DPI cap
 }
 
-// cubic-bezier(0.25,0.1,0.25,1) — the CSS `ease` timing function, so the canvas
-// cross-fade matches the SVG `transition: …ease` exactly. Newton-Raphson solve x→t.
+// cubic-bezier(0.25,0.1,0.25,1) — the CSS `ease` curve, so the canvas cross-fade
+// matches `transition: …ease` exactly. Newton-Raphson solve x→t.
 function cssEase(x) {
     if (x <= 0) return 0;
     if (x >= 1) return 1;
@@ -50,9 +45,56 @@ function cssEase(x) {
     return ((ay * t + by) * t + cy) * t;
 }
 
+// One animatable fill layer: holds the currently-shown colour per cell and lerps
+// it toward a new target over the cross-fade. Reused for single + base + overlay.
+function createFillState() {
+    let displayed = []; // [r,g,b,a]|null per cell — the colour actually drawn
+    let from = [];      // cross-fade start per cell (a .slice() copy, stable)
+    let to = [];        // cross-fade target per cell
+    return {
+        get displayed() { return displayed; },
+        // Set targets. Returns true if a cross-fade was armed (some colour changed).
+        setTarget(target, crossfade) {
+            if (crossfade && displayed.length === target.length) {
+                let any = false;
+                for (let i = 0; i < target.length; i++) {
+                    const tf = target[i], cur = displayed[i];
+                    if (tf == null) { displayed[i] = null; from[i] = null; to[i] = null; continue; }
+                    if (cur == null) { displayed[i] = tf.slice(); from[i] = null; to[i] = null; continue; }
+                    if (cur[0] !== tf[0] || cur[1] !== tf[1] || cur[2] !== tf[2] || cur[3] !== tf[3]) {
+                        from[i] = cur.slice(); to[i] = tf; any = true;
+                    } else { from[i] = null; to[i] = null; }
+                }
+                return any;
+            }
+            displayed = target.map((tf) => (tf == null ? null : tf.slice()));
+            from = new Array(target.length);
+            to = new Array(target.length);
+            return false;
+        },
+        advance(e) {
+            for (let i = 0; i < displayed.length; i++) {
+                const f = from[i], t = to[i], d = displayed[i];
+                if (f && t && d) {
+                    d[0] = f[0] + (t[0] - f[0]) * e;
+                    d[1] = f[1] + (t[1] - f[1]) * e;
+                    d[2] = f[2] + (t[2] - f[2]) * e;
+                    d[3] = f[3] + (t[3] - f[3]) * e;
+                }
+            }
+        },
+        finalize() {
+            for (let i = 0; i < displayed.length; i++) {
+                const t = to[i], d = displayed[i];
+                if (t && d) { d[0] = t[0]; d[1] = t[1]; d[2] = t[2]; d[3] = t[3]; }
+            }
+        },
+        reset() { displayed = []; from = []; to = []; },
+    };
+}
+
 export function createVoronoiCanvasLayer(map, d3, L, deps) {
-    // deps: { getColor, fireMarkerEvent }
-    // Pane name is per-map so multiple maps (primary, supply, subset) don't collide.
+    // deps: { getColor, fireMarkerEvent, getRowKey }
     const paneName = 'voronoiCanvas-' + (map._leaflet_id || 'main');
     const pane = map.createPane(paneName);
     pane.style.zIndex = '405';           // above tiles/overlay (400), below daynight (450)
@@ -67,7 +109,6 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
     const bctx = base.getContext('2d');
     const hctx = hover.getContext('2d');
 
-    // ---- color helpers (parse once, lerp numerically) ----
     function parseRGBA(str) {
         const c = d3.color(str);
         if (!c) return null;
@@ -78,50 +119,48 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         return 'rgba(' + (a[0] | 0) + ',' + (a[1] | 0) + ',' + (a[2] | 0) + ',' + a[3] + ')';
     }
 
-    // Per-render geometry/state used by hit-testing and the animation loop.
-    let delaunay = null;       // d3.Delaunay over container-space points
-    let voronoi = null;
-    let rows = [];             // data rows, index-aligned with the delaunay points
-    let landPath = null;       // Path2D of the land clip (container space, CSS px)
-    let styles = [];           // resolved {fill,fillOpacity,stroke,weight} per cell
-    let displayedFill = [];    // [r,g,b,a] currently SHOWN per cell (lerped during cross-fade)
-    let fromFill = [];         // cross-fade start per cell
-    let toFill = [];           // cross-fade target per cell
-    let animating = false;
-    let animStart = 0;
-    const animDur = 900;       // 0.9s, matches .transition-color
-    let rafId = null;
-    let hoveredIndex = -1;     // local mouse hover
-    let externIndex = -1;      // cross-map highlight (driven by the other map's hover)
-    let curHandlers = null;    // { options, enableHoverSelect, useMarkerEvents }
+    // ---- geometry / state ----
+    let delaunay = null, voronoi = null;
+    let rows = [];
+    let landPath = null;
+    let mode = 'single';        // 'single' | 'dual'
+    let indexByKey = new Map();  // getRowKey(row) -> cell index (cross-map highlight)
+    // single-fill: one state + per-cell {fillOpacity, stroke, weight}
+    const fillState = createFillState();
+    let cellMeta = [];          // {fillOpacity, stroke, weight} per cell (single mode)
+    // dual-fill: base + overlay states with their (constant) opacities/strokes
+    const baseState = createFillState();
+    const overlayState = createFillState();
+    let baseOpacity = 0.5, overlayOpacity = 0.5, baseStroke = 'rgba(255,255,255,0.08)';
+    let hasBase = false, hasOverlay = false;
+
+    let animating = false, animStart = 0, rafId = null;
+    const animDur = 900;
+    let hoveredIndex = -1;      // local mouse hover
+    let externIndex = -1;      // cross-map highlight from another map
+    let curHandlers = null;
     let visible = false;
-    let geomKey = null;        // cache key: rebuild Delaunay/clip only on view/point change
+    let geomKey = null;
 
     function size() {
         const s = map.getSize();
         const ratio = dpr();
         for (const c of [base, hover]) {
             if (c.width !== s.x * ratio || c.height !== s.y * ratio) {
-                c.width = s.x * ratio;
-                c.height = s.y * ratio;
-                c.style.width = s.x + 'px';
-                c.style.height = s.y + 'px';
+                c.width = s.x * ratio; c.height = s.y * ratio;
+                c.style.width = s.x + 'px'; c.style.height = s.y + 'px';
             }
         }
-        // Pin the canvases to the layer point of container (0,0) so Leaflet's pane
-        // transform slides them with the map during a drag.
         const topLeft = map.containerPointToLayerPoint([0, 0]);
         L.DomUtil.setPosition(base, topLeft);
         L.DomUtil.setPosition(hover, topLeft);
-        // Draw in CSS pixels; the backing store is scaled by the device ratio.
         bctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         hctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         return s;
     }
 
     function resolveStyle(row, fillAccessor) {
-        // Mirror applyCellStyle() in map.js exactly.
-        const style = fillAccessor ? fillAccessor(row) : null;
+        const style = fillAccessor ? fillAccessor(row) : null; // mirror applyCellStyle()
         if (style && typeof style === 'object') {
             return {
                 fill: style.fillColor || style.color,
@@ -130,131 +169,25 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
                 weight: Number.isFinite(style.weight) ? style.weight : 0.5,
             };
         }
-        return {
-            fill: style || deps.getColor(row.annual_cf),
-            fillOpacity: 0.6,
-            stroke: 'rgba(255,255,255,0.08)',
-            weight: 0.5,
-        };
+        return { fill: style || deps.getColor(row.annual_cf), fillOpacity: 0.6, stroke: 'rgba(255,255,255,0.08)', weight: 0.5 };
     }
 
     function buildLandPath(worldGeoJSON) {
         if (!worldGeoJSON) { landPath = null; return; }
         const transform = d3.geoTransform({
-            point(x, y) {
-                const p = map.latLngToContainerPoint(new L.LatLng(y, x));
-                this.stream.point(p.x, p.y);
-            },
+            point(x, y) { const p = map.latLngToContainerPoint(new L.LatLng(y, x)); this.stream.point(p.x, p.y); },
         });
         const p2d = new Path2D();
-        const gen = d3.geoPath(transform, p2d);
-        gen(worldGeoJSON);
+        d3.geoPath(transform, p2d)(worldGeoJSON);
         landPath = p2d;
     }
 
-    function draw() {
-        const s = map.getSize();
-        bctx.clearRect(0, 0, s.x, s.y);
-        if (!voronoi) return;
-        bctx.save();
-        if (landPath) bctx.clip(landPath); // clip cells to land, like the SVG clipPath
-        bctx.lineJoin = 'round';
-        for (let i = 0; i < rows.length; i++) {
-            const st = styles[i];
-            const df = displayedFill[i];
-            if (!st || df == null) continue;
-            bctx.beginPath();
-            voronoi.renderCell(i, bctx); // identical geometry to the SVG path
-            bctx.globalAlpha = st.fillOpacity;
-            bctx.fillStyle = rgbaStr(df); // lerped fill during cross-fade, target otherwise
-            bctx.fill();
-            bctx.globalAlpha = 1;
-            if (st.weight > 0) {
-                bctx.lineWidth = st.weight;
-                bctx.strokeStyle = st.stroke;
-                bctx.stroke();
-            }
-        }
-        bctx.restore();
-    }
-
-    // ---- cross-fade animation loop ----
-    function tick() {
-        rafId = null;
-        if (!animating) { draw(); return; }
-        const t = Math.min(1, (performance.now() - animStart) / animDur);
-        const e = cssEase(t);
-        for (let i = 0; i < rows.length; i++) {
-            const f = fromFill[i], to = toFill[i], d = displayedFill[i];
-            if (f && to && d) {
-                d[0] = f[0] + (to[0] - f[0]) * e;
-                d[1] = f[1] + (to[1] - f[1]) * e;
-                d[2] = f[2] + (to[2] - f[2]) * e;
-                d[3] = f[3] + (to[3] - f[3]) * e;
-            }
-        }
-        draw();
-        if (t >= 1) {
-            animating = false;
-            for (let i = 0; i < rows.length; i++) {
-                if (toFill[i] && displayedFill[i]) {
-                    const to = toFill[i], d = displayedFill[i];
-                    d[0] = to[0]; d[1] = to[1]; d[2] = to[2]; d[3] = to[3];
-                }
-            }
-            draw();
-            return;
-        }
-        rafId = requestAnimationFrame(tick);
-    }
-    function startAnim() { if (rafId == null) rafId = requestAnimationFrame(tick); }
-    function stopAnim() { if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; } animating = false; }
-
-    function drawHover() {
-        const s = map.getSize();
-        hctx.clearRect(0, 0, s.x, s.y);
-        if (!voronoi) return;
-        const drawRim = (idx) => {
-            if (idx < 0 || idx >= rows.length) return;
-            hctx.beginPath();
-            voronoi.renderCell(idx, hctx);
-            hctx.stroke();
-        };
-        hctx.save();
-        if (landPath) hctx.clip(landPath);
-        // Match applyHoverRim(): white rim, 1.2px, full opacity.
-        hctx.lineJoin = 'round';
-        hctx.lineWidth = 1.2;
-        hctx.strokeStyle = '#ffffff';
-        hctx.globalAlpha = 1;
-        drawRim(hoveredIndex);
-        if (externIndex !== hoveredIndex) drawRim(externIndex); // cross-map highlight
-        hctx.restore();
-    }
-
-    function show() {
-        if (!visible) { base.style.display = ''; hover.style.display = ''; visible = true; }
-    }
-    function hide() {
-        if (visible) { base.style.display = 'none'; hover.style.display = 'none'; visible = false; }
-        stopAnim();
-        geomKey = null; // force a geometry rebuild on re-entry (view may have changed)
-        hoveredIndex = -1;
-        externIndex = -1;
-    }
-
-    // render(data, fillAccessor, worldGeoJSON, handlers, opts)
-    //   opts.instant — skip the cross-fade (e.g. sample playback): snap colours.
-    function render(data, fillAccessor, worldGeoJSON, handlers, opts) {
-        opts = opts || {};
-        curHandlers = handlers;
-        rows = data;
-        const s = size();
+    function ensureGeometry(s, worldGeoJSON) {
         const origin = map.getPixelOrigin();
         const key = `${map.getZoom()}|${origin.x},${origin.y}|${s.x}x${s.y}|` +
             `${rows.length}|${rows[0]?.location_id ?? ''}|${rows[rows.length - 1]?.location_id ?? ''}`;
-        const geometryChanged = (key !== geomKey) || !voronoi;
-        if (geometryChanged) {
+        const changed = (key !== geomKey) || !voronoi;
+        if (changed) {
             const pts = new Array(rows.length);
             for (let i = 0; i < rows.length; i++) {
                 const p = map.latLngToContainerPoint([rows[i].latitude, rows[i].longitude]);
@@ -264,40 +197,105 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
             const buf = Math.max(s.x, s.y);
             voronoi = delaunay.voronoi([-buf, -buf, s.x + buf, s.y + buf]);
             buildLandPath(worldGeoJSON);
-            geomKey = key;
-        }
-        styles = rows.map((r) => resolveStyle(r, fillAccessor));
-        const targetFill = styles.map((st) => (st && st.fill != null) ? parseRGBA(st.fill) : null);
-
-        // Cross-fade only on a same-geometry recolour with a prior displayed set (the
-        // SVG `.transition-color` likewise transitions fill on existing cells; fresh
-        // geometry / first paint snaps). Skipped when the caller asks for instant.
-        const canCrossfade = !geometryChanged && !opts.instant
-            && displayedFill.length === rows.length;
-        if (canCrossfade) {
-            let any = false;
-            for (let i = 0; i < rows.length; i++) {
-                const tf = targetFill[i];
-                const cur = displayedFill[i];
-                if (tf == null) { displayedFill[i] = null; fromFill[i] = null; toFill[i] = null; continue; }
-                if (cur == null) { displayedFill[i] = tf.slice(); fromFill[i] = null; toFill[i] = null; continue; }
-                if (cur[0] !== tf[0] || cur[1] !== tf[1] || cur[2] !== tf[2] || cur[3] !== tf[3]) {
-                    fromFill[i] = cur.slice();  // start from current shown colour (handles mid-fade restart)
-                    toFill[i] = tf;
-                    any = true;
-                } else {
-                    fromFill[i] = null; toFill[i] = null;
+            indexByKey = new Map();
+            if (deps.getRowKey) {
+                for (let i = 0; i < rows.length; i++) {
+                    const k = deps.getRowKey(rows[i]);
+                    if (k) indexByKey.set(k, i);
                 }
             }
-            if (any) { animStart = performance.now(); animating = true; startAnim(); }
-        } else {
-            // Instant: show targets now.
-            stopAnim();
-            displayedFill = targetFill.map((tf) => (tf == null ? null : tf.slice()));
-            fromFill = new Array(rows.length);
-            toFill = new Array(rows.length);
+            geomKey = key;
         }
+        return changed;
+    }
 
+    function fillCells(state, opacity, stroke, weight) {
+        const disp = state.displayed;
+        for (let i = 0; i < rows.length; i++) {
+            const df = disp[i];
+            if (df == null) continue;
+            bctx.beginPath();
+            voronoi.renderCell(i, bctx);
+            bctx.globalAlpha = opacity != null ? opacity : (cellMeta[i] ? cellMeta[i].fillOpacity : 0.6);
+            bctx.fillStyle = rgbaStr(df);
+            bctx.fill();
+            bctx.globalAlpha = 1;
+            const w = weight != null ? weight : (cellMeta[i] ? cellMeta[i].weight : 0);
+            if (w > 0) {
+                bctx.lineWidth = w;
+                bctx.strokeStyle = stroke != null ? stroke : (cellMeta[i] ? cellMeta[i].stroke : 'rgba(255,255,255,0.08)');
+                bctx.stroke();
+            }
+        }
+    }
+
+    function draw() {
+        const s = map.getSize();
+        bctx.clearRect(0, 0, s.x, s.y);
+        if (!voronoi) return;
+        bctx.save();
+        if (landPath) bctx.clip(landPath);
+        bctx.lineJoin = 'round';
+        if (mode === 'dual') {
+            if (hasBase) fillCells(baseState, baseOpacity, baseStroke, 0.5);
+            if (hasOverlay) fillCells(overlayState, overlayOpacity, 'none', 0);
+        } else {
+            fillCells(fillState, null, null, null); // per-cell opacity/stroke from cellMeta
+        }
+        bctx.restore();
+    }
+
+    // ---- cross-fade loop ----
+    function activeStates() {
+        return mode === 'dual' ? [hasBase && baseState, hasOverlay && overlayState].filter(Boolean) : [fillState];
+    }
+    function tick() {
+        rafId = null;
+        if (!animating) { draw(); return; }
+        const t = Math.min(1, (performance.now() - animStart) / animDur);
+        const e = cssEase(t);
+        for (const st of activeStates()) st.advance(e);
+        draw();
+        if (t >= 1) { animating = false; for (const st of activeStates()) st.finalize(); draw(); return; }
+        rafId = requestAnimationFrame(tick);
+    }
+    function startAnim() { if (rafId == null) rafId = requestAnimationFrame(tick); }
+    function stopAnim() { if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; } animating = false; }
+
+    function drawHover() {
+        const s = map.getSize();
+        hctx.clearRect(0, 0, s.x, s.y);
+        if (!voronoi) return;
+        const rim = (idx) => { if (idx < 0 || idx >= rows.length) return; hctx.beginPath(); voronoi.renderCell(idx, hctx); hctx.stroke(); };
+        hctx.save();
+        if (landPath) hctx.clip(landPath);
+        hctx.lineJoin = 'round'; hctx.lineWidth = 1.2; hctx.strokeStyle = '#ffffff'; hctx.globalAlpha = 1;
+        rim(hoveredIndex);
+        if (externIndex !== hoveredIndex) rim(externIndex);
+        hctx.restore();
+    }
+
+    function show() { if (!visible) { base.style.display = ''; hover.style.display = ''; visible = true; } }
+    function hide() {
+        if (visible) { base.style.display = 'none'; hover.style.display = 'none'; visible = false; }
+        stopAnim();
+        geomKey = null; hoveredIndex = -1; externIndex = -1;
+    }
+
+    // ---- single-fill render ----
+    function render(data, fillAccessor, worldGeoJSON, handlers, opts) {
+        opts = opts || {};
+        curHandlers = handlers;
+        mode = 'single';
+        rows = data;
+        const s = size();
+        const geometryChanged = ensureGeometry(s, worldGeoJSON);
+        const resolved = rows.map((r) => resolveStyle(r, fillAccessor));
+        cellMeta = resolved;
+        const target = resolved.map((st) => (st && st.fill != null) ? parseRGBA(st.fill) : null);
+        const crossfade = !geometryChanged && !opts.instant;
+        if (fillState.setTarget(target, crossfade)) { animStart = performance.now(); animating = true; startAnim(); }
+        else if (!crossfade) stopAnim();
         show();
         draw();
         if (hoveredIndex >= rows.length) hoveredIndex = -1;
@@ -305,16 +303,56 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         drawHover();
     }
 
-    // ---- hover / click hit-testing ----
+    // ---- dual-fill render (population/supply-demand view) ----
+    function renderDual(data, baseFill, overlayFill, worldGeoJSON, handlers, opts) {
+        opts = opts || {};
+        curHandlers = handlers;
+        mode = 'dual';
+        rows = data;
+        hasBase = typeof baseFill === 'function';
+        hasOverlay = typeof overlayFill === 'function';
+        baseOpacity = hasOverlay ? 0.5 : 0.85;   // match renderVoronoiDual
+        overlayOpacity = hasBase ? 0.5 : 0.35;
+        const s = size();
+        const geometryChanged = ensureGeometry(s, worldGeoJSON);
+        const crossfade = !geometryChanged && !opts.instant;
+        let armed = false;
+        if (hasBase) {
+            const bt = rows.map((d) => { const c = baseFill(d); return c == null ? null : parseRGBA(c); });
+            armed = baseState.setTarget(bt, crossfade) || armed;
+        } else { baseState.reset(); }
+        if (hasOverlay) {
+            const ot = rows.map((d) => { const c = overlayFill(d); return c == null ? null : parseRGBA(c); });
+            armed = overlayState.setTarget(ot, crossfade) || armed;
+        } else { overlayState.reset(); }
+        if (armed) { animStart = performance.now(); animating = true; startAnim(); }
+        else if (!crossfade) stopAnim();
+        show();
+        draw();
+        if (hoveredIndex >= rows.length) hoveredIndex = -1;
+        if (externIndex >= rows.length) externIndex = -1;
+        drawHover();
+    }
+
+    // ---- cross-map highlight (driven by the other map's hover sync) ----
+    function highlightKey(key) {
+        const idx = (key != null && indexByKey.has(key)) ? indexByKey.get(key) : -1;
+        if (idx === externIndex) return;
+        externIndex = idx;
+        drawHover();
+    }
+    function clearHighlight() {
+        if (externIndex === -1) return;
+        externIndex = -1;
+        drawHover();
+    }
+
+    // ---- hit-testing ----
     function hitTest(e) {
         if (!delaunay) return -1;
         const cp = map.mouseEventToContainerPoint(e);
         const idx = delaunay.find(cp.x, cp.y);
         if (idx == null || idx < 0) return -1;
-        // Gate by the land clip so ocean (where SVG cells were clipped away) is inert.
-        // The draw context is scaled by the device ratio, so reset to identity for the
-        // point test — otherwise the CSS-px point is scaled off the CSS-px path and
-        // everything reads as ocean.
         if (landPath) {
             bctx.save();
             bctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -324,12 +362,7 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         }
         return idx;
     }
-
-    function setHover(idx) {
-        if (idx === hoveredIndex) return;
-        hoveredIndex = idx;
-        drawHover();
-    }
+    function setHover(idx) { if (idx === hoveredIndex) return; hoveredIndex = idx; drawHover(); }
 
     function onMove(e) {
         if (!visible || !curHandlers) return;
@@ -337,21 +370,18 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         if (!h.enableHoverSelect) return;
         const idx = hitTest(e);
         if (idx === hoveredIndex) return;
-        // Leave the previous cell.
         if (hoveredIndex >= 0) {
             const prev = rows[hoveredIndex];
             if (h.useMarkerEvents) deps.fireMarkerEvent(prev, 'mouseout');
             if (h.options && h.options.onOut) h.options.onOut(e, prev);
         }
         setHover(idx);
-        // Enter the new cell.
         if (idx >= 0) {
             const row = rows[idx];
             if (h.useMarkerEvents) deps.fireMarkerEvent(row, 'mouseover');
             if (h.options && h.options.onHover) h.options.onHover(e, row);
         }
     }
-
     function onLeave(e) {
         if (hoveredIndex < 0) return;
         const h = curHandlers;
@@ -360,7 +390,6 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         if (h && h.options && h.options.onOut) h.options.onOut(e, prev);
         setHover(-1);
     }
-
     function onClick(e) {
         if (!visible || !curHandlers) return;
         const idx = hitTest(e);
@@ -371,11 +400,10 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
         if (h.options && h.options.onClick) h.options.onClick(row);
     }
 
-    // The canvas pane has pointer-events:none, so listen on the map container.
     const container = map.getContainer();
     container.addEventListener('mousemove', onMove);
     container.addEventListener('mouseleave', onLeave);
     map.on('click', (le) => onClick(le.originalEvent));
 
-    return { render, hide, show };
+    return { render, renderDual, hide, show, highlightKey, clearHighlight };
 }
