@@ -1749,6 +1749,8 @@ export function updateSupplyMap({ overlayMode = 'none', cfData = [], lcoeData = 
 }
 
 function renderVoronoiDual(mapPoints, data, baseFill, overlayFill, options = {}) {
+    // Dual render uses SVG; hide the canvas Voronoi so it doesn't overlay these cells.
+    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
@@ -2709,6 +2711,9 @@ export function updateMapWithSampleFrame(frameData) {
 }
 
 function renderSampleVoronoi(mapPoints, locations) {
+    // Samples render on SVG; hide the canvas Voronoi so its (stale, higher-z-index)
+    // cells don't sit on top of the sample cells.
+    if (voronoiCanvasLayer) voronoiCanvasLayer.hide();
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
