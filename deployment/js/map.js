@@ -2754,7 +2754,51 @@ export function updateMapWithSampleFrame(frameData) {
     updateDayNight(frameData.timestamp);
 }
 
+// Canvas fill for a sample cell: NA hatch for no-data, else the dominance colour.
+function sampleCanvasFill(d) {
+    return (d.isNA || !Number.isFinite(d.solarShare)) ? createVoronoiCanvasLayer.NA_FILL : d.color;
+}
+
 function renderSampleVoronoi(mapPoints, locations) {
+    // Canvas sample path: render the hourly sample voronoi on canvas (NA hatch for
+    // no-data cells, samplePopup on hover). Cross-fade is suppressed during playback
+    // (instant), matching the SVG `.playing` rule. Day/night stays on its own pane.
+    if (resolveVoronoiCanvas()) {
+        d3.select(voronoiLayer._container).selectAll("*").remove();
+        if (mapPoints.length <= 1) { getCanvasLayer(map)?.hide(); return; }
+        const sampleHover = (e, d) => {
+            if (!samplePopup) return;
+            let content;
+            if (d.isNA || !Number.isFinite(d.solarShare)) {
+                content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">No data</div>
+                    <div class="text-[11px] text-muted">No dispatch data for this point at this hour.</div>
+                </div>`;
+            } else {
+                const solar = Number.isFinite(d.solarShare) ? (d.solarShare * 100).toFixed(1) : '--';
+                const battery = Number.isFinite(d.batteryShare) ? (d.batteryShare * 100).toFixed(1) : '--';
+                const other = Number.isFinite(d.otherShare) ? (d.otherShare * 100).toFixed(1) : '--';
+                content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">Generation mix</div>
+                    <div class="text-[11px] text-muted">Solar: ${solar}%</div>
+                    <div class="text-[11px] text-muted">Battery: ${battery}%</div>
+                    <div class="text-[11px] text-muted">Other: ${other}%</div>
+                </div>`;
+            }
+            samplePopup.setLatLng([d.latitude, d.longitude]).setContent(appendCountryLine(content, d)).openOn(map);
+        };
+        ensureVoronoiCanvas(map).render(locations, sampleCanvasFill, worldGeoJSON, {
+            enableHoverSelect: true,
+            useMarkerEvents: false,
+            options: {
+                onHover: sampleHover,
+                onOut: () => { if (samplePopup) map.closePopup(samplePopup); },
+                onClick: (d) => { if (sampleLocationHandler) sampleLocationHandler({ location_id: d.location_id, latitude: d.latitude, longitude: d.longitude, solarShare: d.solarShare ?? 0, batteryShare: d.batteryShare ?? 0, otherShare: d.otherShare ?? 0 }); },
+            },
+        }, { instant: samplePlaybackActive });
+        return;
+    }
+
     // Samples render on SVG; hide the canvas Voronoi so its (stale, higher-z-index)
     // cells don't sit on top of the sample cells.
     getCanvasLayer(map)?.hide();
@@ -2879,6 +2923,12 @@ function renderSampleVoronoi(mapPoints, locations) {
 }
 
 function updateSampleVoronoiColors(locations) {
+    if (resolveVoronoiCanvas()) {
+        const layer = getCanvasLayer(map);
+        // Fast per-frame recolor on canvas (instant during playback). Returns false
+        // if the layer isn't rendered yet → caller falls back to a full render.
+        return layer ? layer.recolor(locations, sampleCanvasFill, { instant: samplePlaybackActive }) : false;
+    }
     const svg = d3.select(voronoiLayer._container);
     const group = svg.select(".sample-voronoi");
     if (group.empty()) return false;

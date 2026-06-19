@@ -454,12 +454,27 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
     }
     map.on('resize', refresh);
 
+    // Fast per-frame recolor (sample playback): same geometry + handlers, new data
+    // (same ids/order) with new colours. No geometry rebuild, no handler change.
+    function recolor(newData, fillAccessor, opts) {
+        opts = opts || {};
+        if (mode !== 'single' || !voronoi || newData.length !== rows.length) return false;
+        rows = newData;
+        cellMeta = rows.map((r) => resolveStyle(r, fillAccessor));
+        const target = cellMeta.map((st) => (st && st.fill != null) ? parseRGBA(st.fill) : null);
+        const crossfade = !opts.instant;
+        if (fillState.setTarget(target, crossfade)) { crossStart = performance.now(); crossfading = true; startAnim(); }
+        else if (!crossfade) { crossfading = false; }
+        draw();
+        return true;
+    }
+
     const container = map.getContainer();
     container.addEventListener('mousemove', onMove);
     container.addEventListener('mouseleave', onLeave);
     map.on('click', (le) => onClick(le.originalEvent));
 
-    return { render, renderDual, hide, show, highlightKey, clearHighlight, setHighlightSet, NA_FILL };
+    return { render, renderDual, recolor, hide, show, highlightKey, clearHighlight, setHighlightSet, NA_FILL };
 }
 
 createVoronoiCanvasLayer.NA_FILL = NA_FILL;

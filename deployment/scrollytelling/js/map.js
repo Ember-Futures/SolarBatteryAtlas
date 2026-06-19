@@ -2257,7 +2257,44 @@ export function updateMapWithSampleFrame(frameData) {
 let lastVoronoi = null;
 let lastVoronoiPoints = null;
 
+// Canvas fill for a scrolly sample cell (no NA hatch here; null colour → not drawn).
+function scrollySampleFill(d) { return d.color; }
+
 function renderSampleVoronoi(mapPoints, locations) {
+    // Canvas sample path: render the hourly sample voronoi on canvas (always instant —
+    // the scrolly animation never cross-fades). Day/night stays on its own pane.
+    if (resolveVoronoiCanvas()) {
+        clearVoronoiSvgFully();
+        if (mapPoints.length <= 1) { getCanvasLayer(map)?.hide(); return; }
+        const sampleHover = (e, d) => {
+            if (!samplePopup) samplePopup = createSharedPopup();
+            const info = sampleInfoById.get(Number(d.location_id)) || d;
+            const solar = Number.isFinite(info.solarShare) ? (info.solarShare * 100).toFixed(1) : '--';
+            const battery = Number.isFinite(info.batteryShare) ? (info.batteryShare * 100).toFixed(1) : '--';
+            const other = Number.isFinite(info.otherShare) ? (info.otherShare * 100).toFixed(1) : '--';
+            const content = `<div class="bg-surface text-on-surface border border-outline px-3 py-2 rounded text-xs max-w-xs">
+                    <div class="font-semibold">Generation mix</div>
+                    <div class="text-[11px] text-muted">Solar: ${solar}%</div>
+                    <div class="text-[11px] text-muted">Battery: ${battery}%</div>
+                    <div class="text-[11px] text-muted">Other: ${other}%</div>
+                </div>`;
+            samplePopup.setLatLng([info.latitude, info.longitude]).setContent(appendCountryLine(content, d)).openOn(map);
+        };
+        ensureVoronoiCanvas(map).render(locations, scrollySampleFill, worldGeoJSON, {
+            enableHoverSelect: true,
+            useMarkerEvents: false,
+            options: {
+                onHover: sampleHover,
+                onOut: () => { if (samplePopup) map.closePopup(samplePopup); },
+                onClick: (d) => {
+                    if (map && map.onLocationSelect) map.onLocationSelect(d, 'sample');
+                    if (sampleLocationHandler) { const info = sampleInfoById.get(Number(d.location_id)) || d; sampleLocationHandler({ ...info }); }
+                },
+            },
+        }, { instant: true });
+        return;
+    }
+
     // Sample frame stays on SVG for now; hide the canvas so it doesn't overlay.
     getCanvasLayer(map)?.hide();
     const svg = d3.select(voronoiLayer._container);
@@ -2476,6 +2513,15 @@ export function updateSampleFrameColors(locations, timestamp) {
             });
         }
     });
+
+    // Canvas fast recolor (instant); sampleInfoById was updated above for hover.
+    const canvasLayer = resolveVoronoiCanvas() ? getCanvasLayer(map) : null;
+    if (canvasLayer) {
+        canvasLayer.recolor(locations, scrollySampleFill, { instant: true });
+        lastSampleFrame = { locations };
+        if (timestamp != null) updateDayNight(timestamp);
+        return;
+    }
 
     // Update Voronoi colors using D3 data join (already optimized in renderSampleVoronoi)
     const svg = d3.select(voronoiLayer._container);
