@@ -10,3 +10,6 @@ deployment/OLD/
 # Node tooling
 node_modules/
 .vite/
+
+# Build artifacts (minified deploy tree from scripts/build-dist.mjs)
+dist/
