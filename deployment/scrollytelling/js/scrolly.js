@@ -12,6 +12,13 @@ import { transitionController, initTransitions, TRANSITION_DURATION, interpolate
 import { showPopulationCfChart, showFossilDisplacementChart, showWeeklySampleChart, showUptimeComparisonChart, showCumulativeCapacityChart, showNoAccessLcoeChart, showGlobalPopulationLcoeChart, showBackupCostChart, showLatitudeDemandSupplyChart, hideChart } from './scrolly-charts.js';
 import { POTENTIAL_MULTIPLE_BUCKETS, POTENTIAL_PER_CAPITA_BUCKETS, FEATURE_WORKER_LCOE, FEATURE_STAGED_PRELOAD, FEATURE_FRAMECACHE } from './constants.js';
 
+// Debug-only performance HUD. Loaded ONLY when the URL has ?perf (or ?perf=1), so
+// normal readers never fetch perf-hud.js and never see the overlay. It installs the
+// window.__SBA_PERF__ sink that the timing hooks in map.js / daynight.js feed.
+try {
+    if (new URLSearchParams(location.search).has('perf')) import('./perf-hud.js');
+} catch (_) { /* measurement is best-effort; never break the page */ }
+
 // ========== STATE ==========
 let summaryData = [];
 let summaryByConfig = new Map();
