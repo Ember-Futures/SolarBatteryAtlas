@@ -381,12 +381,19 @@ export function createVoronoiCanvasLayer(map, d3, L, deps) {
     }
     function clearHighlight() { if (externIndex === -1) return; externIndex = -1; drawHover(); }
 
-    // Chart→map highlight: dim non-matching cells (keys = matching row keys), or null to clear.
-    function setHighlightSet(keys) {
+    // Chart→map highlight: dim non-matching cells. Accepts an array of matching row
+    // keys, a predicate fn(row)->bool, or null to clear.
+    function setHighlightSet(keysOrFn) {
         let set = null;
-        if (keys) { set = new Set(); for (const k of keys) { if (indexByKey.has(k)) set.add(indexByKey.get(k)); } }
+        if (typeof keysOrFn === 'function') {
+            set = new Set();
+            for (let i = 0; i < rows.length; i++) { if (keysOrFn(rows[i])) set.add(i); }
+        } else if (keysOrFn) {
+            set = new Set();
+            for (const k of keysOrFn) { if (indexByKey.has(k)) set.add(indexByKey.get(k)); }
+        }
         hi.fromFactor = hi.factor; hi.start = performance.now();
-        if (set && set.size >= 0 && keys) { hi.set = set; hi.target = 1; hi.dur = 100; }
+        if (set) { hi.set = set; hi.target = 1; hi.dur = 100; }
         else { hi.target = 0; hi.dur = 200; }
         startAnim();
     }

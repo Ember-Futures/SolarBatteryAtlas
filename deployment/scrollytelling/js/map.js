@@ -1216,8 +1216,43 @@ export function updatePopulationSimple(popData, { baseLayer = 'population', over
 
 function renderVoronoiDual(mapPoints, data, baseFill, overlayFill, options = {}) {
     const { onHover, onOut, onClick } = options;
-    // Dual stays on SVG for now; hide the canvas Voronoi so it doesn't overlay these.
-    getCanvasLayer(map)?.hide();
+
+    // Canvas dual path: base+overlay on the canvas layer, replicating the SVG hover
+    // (rim drawn by the layer + marker + onHover + reliability/section5 chart highlights).
+    if (resolveVoronoiCanvas()) {
+        clearVoronoiSvgFully();
+        // Section-5 chart->map highlight (defined here so it exists despite the early
+        // return); dims non-matching cells on canvas.
+        window.updateMapWithHighlightSection5 = (locationIds) => {
+            getCanvasLayer(map)?.setHighlightSet(locationIds ? locationIds.map(Number) : null);
+        };
+        if (mapPoints.length <= 1 || (typeof baseFill !== 'function' && typeof overlayFill !== 'function')) { getCanvasLayer(map)?.hide(); return; }
+        const dualIn = (e, d) => {
+            fireMarkerEventModule(d, 'mouseover');
+            if (onHover) onHover(e, d);
+            if (lastReliabilityByCoord) {
+                const rel = lastReliabilityByCoord.get(roundedKey(d.latitude, d.longitude, 2));
+                if (rel && rel.hrea_covered && window.highlightChartsByReliability) {
+                    const val = rel.avg_reliability_access_only !== undefined ? rel.avg_reliability_access_only : rel.avg_reliability;
+                    window.highlightChartsByReliability(val);
+                }
+            }
+            if (window.section5ChartActive && d.location_id && window.highlightChartByLocationId) window.highlightChartByLocationId(d.location_id);
+        };
+        const dualOut = (e, d) => {
+            fireMarkerEventModule(d, 'mouseout');
+            if (onOut) onOut(e, d);
+            if (window.clearChartsHighlight) window.clearChartsHighlight();
+            if (window.section5ChartActive && window.clearSection5ChartHighlight) window.clearSection5ChartHighlight();
+        };
+        ensureVoronoiCanvas(map).renderDual(data, baseFill, overlayFill, worldGeoJSON, {
+            enableHoverSelect: true,
+            useMarkerEvents: false,
+            options: { onHover: dualIn, onOut: dualOut, onClick: (d) => { fireMarkerEventModule(d, 'click'); if (onClick) onClick(null, d); } },
+        });
+        return;
+    }
+
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll("*").remove();
 
@@ -2674,6 +2709,16 @@ export function renderSubsetMap(allData, subsetIds, getValue, getColor, layerTyp
 
 // ========== HIGHLIGHTING HELPERS ==========
 window.highlightMapByReliability = function (min, max) {
+    const canvasLayer = getCanvasLayer(map);
+    if (canvasLayer) {
+        canvasLayer.setHighlightSet((row) => {
+            const rel = lastReliabilityByCoord && lastReliabilityByCoord.get(roundedKey(row.latitude, row.longitude, 2));
+            if (!rel) return false;
+            const val = parseFloat(rel.avg_reliability_access_only !== undefined ? rel.avg_reliability_access_only : rel.avg_reliability);
+            return val >= min && val < max;
+        });
+        return;
+    }
     const svg = d3.select(voronoiLayer._container);
     // Same 100ms d3 transition and identical per-cell logic as before; the only
     // change is reading data-rel via the native this.getAttribute instead of
@@ -2708,6 +2753,8 @@ window.highlightMapByReliability = function (min, max) {
 };
 
 window.clearMapHighlight = function () {
+    const canvasLayer = getCanvasLayer(map);
+    if (canvasLayer) { canvasLayer.setHighlightSet(null); return; }
     const svg = d3.select(voronoiLayer._container);
     svg.selectAll(".voronoi-cell")
         .transition().duration(200)
